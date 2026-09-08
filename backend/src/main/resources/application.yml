@@ -1,0 +1,30 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: friday-class-backend
+  datasource:
+    url: jdbc:mysql://localhost:3306/friday_class?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai
+    username: root
+    # 密码不写死（避免提交到公开仓库）：本地用环境变量 DB_PASSWORD，或激活 local profile 读 application-local.yml（已 gitignore）
+    password: ${DB_PASSWORD:}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  jpa:
+    hibernate:
+      # 表结构由 db/schema.sql 统一管理，JPA 不自动建表
+      ddl-auto: none
+    open-in-view: false
+    show-sql: true
+  jackson:
+    time-zone: Asia/Shanghai
+
+# DeepSeek 大模型配置（占位，API key 晚点给，用环境变量注入）
+deepseek:
+  api-key: ${DEEPSEEK_API_KEY:}
+  base-url: https://api.deepseek.com
+  model: deepseek-v4-flash
+
+logging:
+  level:
+    com.fridayclass: debug
