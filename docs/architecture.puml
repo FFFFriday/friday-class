@@ -1,0 +1,36 @@
+@startuml
+!theme plain
+skinparam componentStyle rectangle
+skinparam defaultFontName "Microsoft YaHei"
+title 周五课堂（智能教学互动平台）系统架构图
+
+package "客户端层（前端 Vue3 + Vite · JS）" {
+  component "教师端" as TeacherUI
+  component "学生端" as StudentUI
+}
+
+package "应用层（后端 SpringBoot 3.5）" {
+  component "Controller 层\n(REST API)" as Controller
+  component "WebSocket\n(翻页页码广播)" as WS
+  component "Service 层\n(业务逻辑 F001~F006)" as Service
+  component "Repository 层\n(Spring Data JPA)" as Repo
+}
+
+package "数据层" {
+  database "MySQL 9.5\nfriday_class（9 张表）" as DB
+  folder "文件系统\n.pptx / 网页幻灯片" as FS
+}
+
+cloud "DeepSeek API\n（纯文本大模型）" as DeepSeek
+
+TeacherUI --> Controller
+StudentUI --> Controller
+TeacherUI --> WS
+StudentUI --> WS
+Controller --> Service
+WS --> Service
+Service --> Repo
+Repo --> DB
+Service --> FS
+Service --> DeepSeek
+@enduml
