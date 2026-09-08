@@ -125,7 +125,7 @@ CREATE TABLE `qa_record` (
   KEY `idx_qa_session` (`session_id`),
   KEY `idx_qa_student` (`student_id`),
   KEY `idx_qa_page` (`page_id`),
-  CONSTRAINT `fk_qa_session` FOREIGN KEY (`session_id`) REFERENCES `class_session` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_qa_session` FOREIGN KEY (`session_id`) REFERENCES `class_session` (`id`) ON DELETE RESTRICT,
   CONSTRAINT `fk_qa_student` FOREIGN KEY (`student_id`) REFERENCES `user` (`id`) ON DELETE RESTRICT,
   CONSTRAINT `fk_qa_page` FOREIGN KEY (`page_id`) REFERENCES `courseware_page` (`id`) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='问答记录';
@@ -139,9 +139,9 @@ CREATE TABLE `course_summary` (
   `generated_at`  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '总结生成时间',
   `created_at`    DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   PRIMARY KEY (`id`),
-  KEY `idx_summary_session` (`session_id`),
+  UNIQUE KEY `uk_summary_session` (`session_id`),
   KEY `idx_summary_courseware` (`courseware_id`),
-  CONSTRAINT `fk_summary_session` FOREIGN KEY (`session_id`) REFERENCES `class_session` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_summary_session` FOREIGN KEY (`session_id`) REFERENCES `class_session` (`id`) ON DELETE RESTRICT,
   CONSTRAINT `fk_summary_courseware` FOREIGN KEY (`courseware_id`) REFERENCES `courseware` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='课程总结';
 
