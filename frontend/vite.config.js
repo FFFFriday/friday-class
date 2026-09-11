@@ -17,6 +17,13 @@ export default defineConfig({
         target: 'http://localhost:8081',
         changeOrigin: true,
       },
+      // 网页幻灯片由后端 SlideController 提供（GET /slides/{id}/page{n}.html）。
+      // 不代理的话这个请求会落到 Vite 自己身上，被 SPA 兜底返回 index.html，
+      // 前端 iframe 里就是一片空白 / 整个应用再套一层。
+      '/slides': {
+        target: 'http://localhost:8081',
+        changeOrigin: true,
+      },
     },
   },
 })
