@@ -4,6 +4,9 @@ server:
 spring:
   application:
     name: friday-class-backend
+  # 默认走 local profile（密钥等敏感配置放 application-local.yml，已 gitignore）；生产用 SPRING_PROFILES_ACTIVE 覆盖
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:local}
   datasource:
     url: jdbc:mysql://localhost:3306/friday_class?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai
     username: root
@@ -15,15 +18,34 @@ spring:
       # 表结构由 db/schema.sql 统一管理，JPA 不自动建表
       ddl-auto: none
     open-in-view: false
-    show-sql: true
   jackson:
     time-zone: Asia/Shanghai
+  servlet:
+    multipart:
+      # 单个课件上限 50MB；同时限制整个请求，双保险
+      max-file-size: 50MB
+      max-request-size: 55MB
 
-# DeepSeek 大模型配置（占位，API key 晚点给，用环境变量注入）
+# JWT 配置：密钥绝不硬编码（会提交到公开仓库）。
+# 本地开发：在 application-local.yml 配 jwt.secret（已 gitignore）；
+# 生产：用环境变量 JWT_SECRET 注入。启动时会校验密钥非空且长度 >= 32 字节。
+jwt:
+  secret: ${JWT_SECRET:}
+  expire-ms: 604800000   # 令牌有效期 7 天
+
+# DeepSeek 大模型配置（API key 用环境变量注入，不写进公开配置）
+# 注意：服务端只提供 deepseek-flash / deepseek-v4-pro 两个模型 ID，
+# 没有 deepseek-v4-flash 这个 ID（写错会导致每次调用直接 400）。
 deepseek:
   api-key: ${DEEPSEEK_API_KEY:}
   base-url: https://api.deepseek.com
-  model: deepseek-v4-flash
+  model: deepseek-flash
+
+# 课件与幻灯片存储根目录（相对路径基于启动目录）。
+# 该目录已在 .gitignore 中忽略，不会提交到仓库。
+app:
+  storage:
+    root: ${STORAGE_ROOT:./storage}
 
 logging:
   level:
