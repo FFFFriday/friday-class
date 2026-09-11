@@ -1,0 +1,57 @@
+@startuml
+!theme plain
+skinparam defaultFontName "Microsoft YaHei"
+skinparam shadowing false
+title 图2  课件解析时序图（F001 + F002，异步）
+
+actor "教师" as T
+participant "教师端\n(Vue)" as FE
+participant "后端\n(CoursewareController)" as API
+participant "解析智能体\n(ParseAgentService)" as AG
+participant "异步任务\n(ai_parse_task)" as TASK
+database "MySQL" as DB
+participant "DeepSeek API\n(纯文本 deepseek-flash)" as DS
+
+T -> FE: 选择 .pptx 上传
+FE -> API: POST /api/courseware/upload
+API -> API: 存文件\ncourseware(status=UPLOADED)
+API --> FE: 上传成功，返回课件 ID
+API -> TASK: 投递解析任务（异步，有界线程池 + 单课件互斥）
+
+== 逐页解析（后台异步，不阻塞教师）==
+TASK -> DB: 建 ai_parse_task\n(status=RUNNING, total_pages=N)
+TASK -> DB: courseware.status=PARSING
+
+loop 每一页
+  TASK -> DB: 校验课件未删除 + 读 page.text_content
+  TASK -> AG: parsePage(pageText)
+  AG -> DS: 抽取知识点 + 预置提问\n(JSON 模式, 单次超时 60s)
+  alt 成功
+    DS --> AG: JSON 结果
+    AG -> AG: 清洗围栏 + 解析 JSON\n(失败且疑似截断 → 记 PARTIAL)
+    AG -> DB: 先删该页旧知识点再插入\n(避免重跑产生重复行)
+    AG -> DB: 更新 current_page（进度）
+  else 可重试错误（超时 / 429 / 5xx）
+    DS --> AG: 错误
+    AG -> AG: 指数退避重试，最多 3 次\n(1s → 2s → 4s)
+    note right: 仍失败则记 error_message\n跳过该页继续下一页
+  else 不可重试错误（401 / 400 / 402）
+    DS --> AG: 错误
+    AG -> AG: 立即失败，不重试
+    note right: V1 曾无差别重试，\n会把配置错误放大成每次白等
+  end
+end
+
+== 收尾：按结果决定状态（V2 修正：图文一致）==
+alt 全部页成功
+  TASK -> DB: ai_parse_task=SUCCESS\ncourseware.status=PARSED
+else 部分页失败
+  TASK -> DB: ai_parse_task=PARTIAL\ncourseware.status=PARSED（另置任务级标记）
+else 全部页失败
+  TASK -> DB: ai_parse_task=FAILED\ncourseware.status=FAILED（重试入口据此触发）
+end
+
+== 教师端轮询进度 ==
+FE -> API: GET /api/courseware/{id}/parse-progress
+API --> FE: {status, currentPage, totalPages}
+@enduml

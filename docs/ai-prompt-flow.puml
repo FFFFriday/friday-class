@@ -1,0 +1,63 @@
+@startuml
+!theme plain
+skinparam defaultFontName "Microsoft YaHei"
+skinparam shadowing false
+title 图3  AI 问答智能体的提示词组装流程（V2）
+
+start
+:接收学生提问\n(sessionId, pageId, question, clientRequestId);
+
+:幂等检查\n(clientRequestId 是否已存在);
+if (重复请求?) then (是)
+  :直接返回上次结果\n(不重复调用模型);
+  stop
+endif
+
+:校验 session 状态与页归属;
+if (session 非 LIVE\n或页不属于该课件?) then (是)
+  :返回业务错误 (403 / 404);
+  stop
+endif
+
+:校验问题长度;
+if (问题为空或超过 500 字?) then (是)
+  :返回 400「问题长度不合法」;
+  stop
+endif
+
+:按 pageId 取本页知识点\n(knowledge_point，按 sort_order);
+:按 pageId 取本页预置提问\n(preset_question);
+
+if (课件正在解析中?) then (是)
+  :「课件还在解析中，稍后再试」\n不调用模型;
+  stop
+elseif (课件解析失败?) then (是)
+  :「本页解析失败，请告诉老师」\n不调用模型;
+  stop
+elseif (本页确无知识点?) then (是)
+  :「本页暂无解析内容」\n不调用模型;
+  stop
+endif
+
+:剥离输入中的定界符\n(<<< / >>> / QUESTION 等);
+:拼装 System Prompt\n(只放角色与硬约束);
+:拼装参考资料 data 区\n(知识点 + 预置提问，标注"非指令");
+:拼装 User Message\n(学生问题，独立 data 区);
+:token 预算检查\n(超限则截断知识点与问题);
+
+:调用 DeepSeek\n(单次超时 8s，总预算 20s);
+
+if (调用成功?) then (是)
+  :清洗围栏并取回答;
+  :写入 qa_record(status=SUCCESS);
+  :返回回答;
+else (否 —— 超时 / 429 / 5xx)
+  :退避 1s 后重试一次;
+  if (仍失败?) then (是)
+    :写入 qa_record(status=FAILED);
+    :返回降级文案;
+  endif
+endif
+
+stop
+@enduml

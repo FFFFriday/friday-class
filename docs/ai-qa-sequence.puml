@@ -1,0 +1,51 @@
+@startuml
+!theme plain
+skinparam defaultFontName "Microsoft YaHei"
+skinparam shadowing false
+title 图1  学生端 AI 问答时序图（F004）
+
+actor "学生" as S
+participant "学生端\n(Vue)" as FE
+participant "后端\n(QaController)" as API
+participant "AI 问答智能体\n(QaAgentService)" as AG
+database "MySQL\n知识点 / 问答记录" as DB
+participant "DeepSeek API\n(纯文本 deepseek-flash)" as DS
+
+== 课前：提示词包预下发 ==
+S -> FE: 进入直播页
+FE -> API: GET /api/courseware/{id}/prompt-pack
+API -> DB: 查全部页的知识点 + 预置提问
+DB --> API: 返回
+API --> FE: {parseVersion, pages[]}
+FE -> FE: 按 pageId 建索引缓存\n(存 parseVersion 以便失效重拉)
+
+== 课中：老师翻页 ==
+note over FE: 老师端翻页 → WebSocket 广播页码
+FE -> FE: 按新 pageId 切换本地上下文
+
+== 课中：迟到 / 断线重连 ==
+FE -> API: GET /api/session/{id}
+API --> FE: {currentPage}
+note right: 用落库的 current_page 兜底恢复\n(否则错过广播就拿不到页码)
+
+== 课中：学生提问（总预算 20 秒）==
+S -> FE: 输入问题
+FE -> API: POST /api/qa/ask\n{sessionId, pageId, question, clientRequestId}
+API -> DB: 校验 session=LIVE\n且 page 属于该课件\n并做 clientRequestId 幂等检查
+API -> AG: ask(sessionId, pageId, question)
+AG -> AG: 剥离定界符 + 组装 Prompt\n(知识内容放独立 data 区)
+AG -> DS: chat/completions\n(单次超时 8s，最多重试 1 次)
+alt 20 秒内成功
+  DS --> AG: 回答文本
+  AG -> DB: INSERT qa_record(status=SUCCESS)
+  AG --> API: 回答内容
+  API --> FE: {id, question, answer, status, askedAt}
+  FE --> S: 展示回答
+else 超时 / 失败（含 429 退避后仍失败）
+  DS --> AG: 错误
+  AG -> DB: INSERT qa_record(status=FAILED)
+  AG --> API: 降级文案
+  API --> FE: 友好提示「稍后再试」
+  FE --> S: 展示提示
+end
+@enduml
