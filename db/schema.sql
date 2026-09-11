@@ -27,6 +27,7 @@ CREATE TABLE `user` (
   `created_at`    DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `updated_at`    DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   `deleted`       TINYINT(1)      NOT NULL DEFAULT 0      COMMENT '软删除标记：0 正常 / 1 已删除',
+  `token_version` INT             NOT NULL DEFAULT 0      COMMENT '令牌版本：改密码时自增，使此前签发的 JWT 立即失效',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_user_username` (`username`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户';
@@ -97,6 +98,7 @@ CREATE TABLE `class_session` (
   `status`           VARCHAR(20)     NOT NULL DEFAULT 'NOT_STARTED' COMMENT '直播状态：NOT_STARTED/LIVE/ENDED',
   `stream_push_url`  VARCHAR(500)    NULL                    COMMENT '推流地址（直播方案待定，预留）',
   `stream_pull_url`  VARCHAR(500)    NULL                    COMMENT '拉流地址（直播方案待定，预留）',
+  `current_page`     INT             NULL                    COMMENT '当前页码（随翻页广播更新；迟到/重连的学生靠它恢复上下文）',
   `started_at`       DATETIME        NULL                    COMMENT '开始时间',
   `ended_at`         DATETIME        NULL                    COMMENT '结束时间',
   `created_at`       DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
@@ -118,6 +120,7 @@ CREATE TABLE `qa_record` (
   `page_id`    BIGINT UNSIGNED NOT NULL                COMMENT '提问时所在页ID，外键',
   `question`   TEXT            NOT NULL                COMMENT '学生提问文本（≤500 字）',
   `answer`     TEXT            NULL                    COMMENT 'AI 回答文本',
+  `status`     VARCHAR(20)     NOT NULL DEFAULT 'SUCCESS' COMMENT '问答状态：SUCCESS 已作答 / FAILED 调用失败（便于学情统计区分）',
   `asked_at`   DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '提问时间',
   `created_at` DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `updated_at` DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
