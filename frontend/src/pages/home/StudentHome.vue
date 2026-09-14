@@ -9,6 +9,7 @@ import { onMounted, ref } from 'vue'
 import http from '@/api/http'
 import { useAuthStore } from '@/stores/auth'
 import CoursewareCard from '@/components/CoursewareCard.vue'
+import LiveSessions from '@/components/LiveSessions.vue'
 
 const auth = useAuthStore()
 
@@ -72,6 +73,9 @@ onMounted(load)
         />
       </form>
     </section>
+
+    <!-- 正在直播：学生进首页第一眼就能看到「现在有课」。没有课时整块不渲染 -->
+    <LiveSessions />
 
     <div v-if="loading" class="hint">加载中…</div>
     <div v-else-if="error" class="hint error-text">{{ error }}</div>

@@ -24,6 +24,14 @@ export default defineConfig({
         target: 'http://localhost:8081',
         changeOrigin: true,
       },
+      // 翻页广播的 WebSocket。
+      // ⚠️ 必须带 ws:true，否则握手请求会被 Vite 当普通 HTTP 请求、落到 SPA 兜底上。
+      // 这和 /slides 当初漏配代理是同一类坑：表现是「连不上」，原因却在代理不在代码。
+      '/ws': {
+        target: 'http://localhost:8081',
+        ws: true,
+        changeOrigin: true,
+      },
     },
   },
 })

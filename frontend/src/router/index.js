@@ -27,6 +27,15 @@ const routes = [
     meta: { requiresAuth: true, teacherOnly: true },
   },
   { path: '/live/:sessionId', name: 'live', component: () => import('@/pages/LivePage.vue'), meta: { requiresAuth: true } },
+  {
+    // 教师端直播控制台：开课后进来，负责翻页。
+    // teacherOnly 只是前端体验；真正的边界在后端
+    // （POST /api/session/*/page 在 SecurityConfig 与 @PreAuthorize 上都限了 TEACHER）。
+    path: '/teach/:sessionId',
+    name: 'teach',
+    component: () => import('@/pages/TeacherLivePage.vue'),
+    meta: { requiresAuth: true, teacherOnly: true },
+  },
   { path: '/profile', name: 'profile', component: () => import('@/pages/ProfilePage.vue'), meta: { requiresAuth: true } },
 ]
 
