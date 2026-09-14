@@ -8,6 +8,20 @@ import { USE_MOCK, getMockResponse } from './mock'
 // 大课件几十秒很正常，所以 UploadPage 会单独传一个更长的 timeout。
 const http = axios.create({ baseURL: '/api', timeout: 10000 })
 
+// 会话失效（401）时的清理动作，由 main.js 在 pinia 装好后注入。
+//
+// 为什么要有这个注入点：改造前 401 分支直接自己 removeItem + window.location.href，
+// 那时守卫是直接读 localStorage 的，清掉即失效，没问题。
+// 但登录态收进 auth store 之后，store 里的 token 是**内存副本**——
+// 拦截器只清 localStorage 而不同步 store，就会出现「localStorage 已清空、
+// 但 auth.isLoggedIn 仍为 true」的两套真源，守卫据此放行 → 再打接口 → 再 401
+// → 再重定向，来回反弹。所以清理必须交给唯一真源（store）。
+let unauthorizedHandler = null
+
+export function setUnauthorizedHandler(handler) {
+  unauthorizedHandler = handler
+}
+
 // 请求拦截器：加 token
 http.interceptors.request.use((config) => {
   const token = localStorage.getItem('token')
@@ -57,9 +71,17 @@ http.interceptors.response.use(
 
     // 401：令牌无效/过期/被撤销（改密码后旧令牌全部作废）→ 清掉重新登录
     if (status === 401 && !isLoginRequest) {
-      localStorage.removeItem('token')
-      if (!window.location.pathname.startsWith('/login')) {
-        window.location.href = '/login'
+      if (unauthorizedHandler) {
+        // 交给 auth store：内存态和 localStorage 一起清，避免两套真源
+        unauthorizedHandler()
+      } else {
+        // 兜底：handler 还没注册（应用挂载前的早期请求）时保持原行为。
+        // 注意 user 也要一起删——只删 token 会留下一个「没有令牌却有用户」的残局。
+        localStorage.removeItem('token')
+        localStorage.removeItem('user')
+        if (!window.location.pathname.startsWith('/login')) {
+          window.location.href = '/login'
+        }
       }
       return Promise.reject(new Error(envelopeMessage || '登录已过期，请重新登录'))
     }
