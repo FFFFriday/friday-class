@@ -57,6 +57,15 @@ public class ClassSession {
     @Column(name = "stream_pull_url", length = 500)
     private String streamPullUrl;
 
+    /**
+     * 当前页码。翻页时**先写这里再广播**，供迟到/断线重连的学生恢复上下文。
+     *
+     * <p>这一列在 {@code db/schema.sql} 里早就建好了，但实体一直没映射，
+     * 导致 F003 的「先落库再广播」实际落不进去（值永远是 NULL）。补上。
+     */
+    @Column(name = "current_page")
+    private Integer currentPage;
+
     @Column(name = "started_at")
     private LocalDateTime startedAt;
 

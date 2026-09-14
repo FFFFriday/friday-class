@@ -46,6 +46,12 @@ deepseek:
 app:
   storage:
     root: ${STORAGE_ROOT:./storage}
+  ws:
+    # WebSocket 允许的来源模式（逗号分隔）。默认放行本机任意端口——
+    # 不写死端口是刻意的：SecurityConfig 的 CORS 写死了 5173，
+    # 前端一换端口就会 403，这里不重复那个坑。
+    # ⚠️ 部署到真实域名时必须覆盖此项，否则浏览器会因 Origin 不匹配而连不上。
+    allowed-origin-patterns: ${APP_WS_ALLOWED_ORIGIN_PATTERNS:http://localhost:*,http://127.0.0.1:*}
 
 logging:
   level:

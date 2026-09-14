@@ -76,6 +76,14 @@ public class SecurityConfig {
                         // 网页幻灯片：随门户一起公开（课件详情页要能直接看）。
                         // 返回时统一加 sandbox CSP 响应头，限制其脚本能力。
                         .requestMatchers(HttpMethod.GET, "/slides/**").permitAll()
+                        // 开课 / 翻页：限教师。「翻的是不是自己的课堂」由 Service 再校验一次。
+                        .requestMatchers(HttpMethod.POST, "/api/session").hasRole("TEACHER")
+                        .requestMatchers(HttpMethod.POST, "/api/session/*/page").hasRole("TEACHER")
+                        // WebSocket 握手：浏览器原生 WebSocket **无法携带 Authorization 头**，
+                        // 所以握手阶段只能放行。鉴权改由 PageWebSocketHandler 在「首帧」完成，
+                        // 它同样会查库校验用户是否仍在、令牌版本是否被改密码作废，
+                        // 口径与 JwtAuthenticationFilter 一致，不会形成绕过。
+                        .requestMatchers("/ws/**").permitAll()
                         // 错误转发路径
                         .requestMatchers("/error").permitAll()
                         .anyRequest().authenticated())
