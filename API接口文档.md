@@ -1218,6 +1218,10 @@ curl -s "$BASE/api/courseware?size=1"
 # 期望：{"code":0,"message":"ok","data":{"list":[...],"total":N,"page":1,"size":1}}
 
 # 1) 教师登录（账号由 db/seed_teacher.sql 预置）
+#    预置三个账号，用于「多个老师同时开课」的演示：
+#      teacher  / teacher123     演示教师
+#      teacher2 / teacher2123    教师二
+#      teacher3 / teacher3123    教师三
 curl -s -X POST "$BASE/api/auth/login" \
   -H "Content-Type: application/json" \
   -d '{"username":"teacher","password":"teacher123"}'
@@ -1229,7 +1233,7 @@ TOKEN="eyJhbGciOiJIUzI1NiJ9..."
 # 3) 查当前用户，验证 token 有效
 curl -s "$BASE/api/auth/me" -H "Authorization: Bearer $TOKEN"
 # 期望：{"code":0,...,"data":{"id":N,"username":"teacher","role":"TEACHER","nickname":"演示教师"}}
-# 注意 id 别写死：全新库上 seed_teacher.sql 只插一行，teacher 的 id 会是 1
+# 注意 id 别写死：id 取决于建库与插入顺序，不要按「第一个教师就是 1」来假设
 
 # 4) 上传课件（注意 -F 和 @）
 curl -s -X POST "$BASE/api/courseware/upload" \

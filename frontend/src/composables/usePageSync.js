@@ -21,11 +21,14 @@ const HEARTBEAT_MS = 25000
 /**
  * @param {string|number} sessionId 课堂 ID
  * @param {(pageNo: number) => void} [onPageChange] 每次收到翻页广播时回调
+ * @param {() => void} [onEnded] 收到「下课」广播时回调
  */
-export function usePageSync(sessionId, onPageChange) {
+export function usePageSync(sessionId, onPageChange, onEnded) {
   const currentPage = ref(null)
   const connected = ref(false)
   const lastError = ref('')
+  /** 服务端广播了下课。一旦为 true 就不再回退——课结束了不会「重新开始」。 */
+  const ended = ref(false)
 
   let socket = null
   let heartbeatTimer = null
@@ -110,6 +113,14 @@ export function usePageSync(sessionId, onPageChange) {
         return
       }
 
+      if (msg.type === 'ended') {
+        // 只置位、不关闭连接：老师可能只是误点后重新开课，
+        // 断开反而会让两端各自重连、状态更难对齐。
+        ended.value = true
+        if (onEnded) onEnded()
+        return
+      }
+
       if (msg.type === 'error') {
         lastError.value = msg.message || '实时连接出错'
       }
@@ -141,5 +152,5 @@ export function usePageSync(sessionId, onPageChange) {
 
   connect()
 
-  return { currentPage, connected, lastError, close }
+  return { currentPage, connected, lastError, ended, close }
 }

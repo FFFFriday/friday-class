@@ -34,12 +34,41 @@ public class SessionController {
         this.classSessionService = classSessionService;
     }
 
-    /** 开课（教师专属）。 */
+    /**
+     * 开课（教师专属）。
+     *
+     * <p><b>幂等</b>：若该教师对这份课件已有未结束的课堂，直接返回那一节，不再新建。
+     * 这样「开始上课」按钮重复点、刷新页面重新进都不会制造重复课堂。
+     */
     @PostMapping
     @PreAuthorize("hasRole('TEACHER')")
     public ApiResponse<SessionResponse> create(@Valid @RequestBody SessionCreateRequest request,
                                                @AuthenticationPrincipal UserPrincipal principal) {
         return ApiResponse.ok(classSessionService.create(principal.getId(), request));
+    }
+
+    /**
+     * 我（当前教师）名下所有未结束的课堂。
+     *
+     * <p>必须声明在 {@link #detail} 之前，理由同 {@link #active()}。
+     *
+     * <p>与 {@link #active()} 的分工：{@code /active} 答的是「现在有什么课在讲」（给所有人看），
+     * 这个答的是「我的课在哪」（含还没开始翻页的），老师退出控制台后靠它回来。
+     */
+    @GetMapping("/mine")
+    @PreAuthorize("hasRole('TEACHER')")
+    public ApiResponse<ListResult<SessionResponse>> mine(@AuthenticationPrincipal UserPrincipal principal) {
+        return ApiResponse.ok(ListResult.of(classSessionService.listMine(principal.getId())));
+    }
+
+    /**
+     * 下课（教师专属，且只能结束自己的课堂）。幂等，重复调用不报错。
+     */
+    @PostMapping("/{id}/end")
+    @PreAuthorize("hasRole('TEACHER')")
+    public ApiResponse<SessionResponse> end(@PathVariable Long id,
+                                            @AuthenticationPrincipal UserPrincipal principal) {
+        return ApiResponse.ok(classSessionService.end(id, principal.getId()));
     }
 
     /**

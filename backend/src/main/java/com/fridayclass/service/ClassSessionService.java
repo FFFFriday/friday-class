@@ -74,6 +74,23 @@ public class ClassSessionService {
                     + courseware.getStatus().name() + "）");
         }
 
+        // 幂等：这位老师对这份课件已经有未结束的课堂，就把它原样还回去，不再新建。
+        //
+        // 为什么必须这样：老师每点一次「开始上课」就多一节课，而他只能停在最新那节，
+        // 前面那节永远不会被结束——更糟的是老师退出控制台后，旧课既不在
+        // 「正在直播」里（因为还没翻过页，状态还是 NOT_STARTED），也没有入口回去，
+        // 就彻底卡死了。这是 F003 反馈 #3 的根因。
+        ClassSession existing = sessionRepository
+                .findActiveByTeacherAndCourseware(teacherId, courseware.getId())
+                .stream()
+                .findFirst()
+                .orElse(null);
+        if (existing != null) {
+            log.info("session_create_reused id={} coursewareId={} teacherId={} status={}",
+                    existing.getId(), courseware.getId(), teacherId, existing.getStatus());
+            return SessionResponse.from(existing);
+        }
+
         User teacher = userRepository.findById(teacherId)
                 .orElseThrow(() -> new BusinessException(401, "登录已失效，请重新登录"));
 
@@ -108,6 +125,56 @@ public class ClassSessionService {
                 .stream()
                 .map(SessionResponse::from)
                 .toList();
+    }
+
+    /**
+     * 当前教师名下**所有未结束**的课堂（教师首页「我的课堂」+ 课件详情页的返回入口）。
+     *
+     * <p>与 {@link #listActive()} 的区别是关键：那个只查 {@code LIVE}，因为学生只关心
+     * 「现在有没有课在讲」；而教师必须看到自己**未开始**（{@code NOT_STARTED}）的课堂，
+     * 否则开完课还没翻页就退出，就再也回不去了。
+     */
+    @Transactional(readOnly = true)
+    public List<SessionResponse> listMine(Long teacherId) {
+        return sessionRepository.findMineWithDetail(teacherId)
+                .stream()
+                .map(SessionResponse::from)
+                .toList();
+    }
+
+    /**
+     * 下课：置为 {@code ENDED} 并广播。
+     *
+     * <p>幂等——重复点（或网络重试导致重复请求）不会报错，直接返回当前状态。
+     * 已结束的课堂再被广播一次「下课」是安全的，学生端本来就显示已结束。
+     *
+     * <p>与翻页同理用 {@code TransactionTemplate}：**先落库、提交后再广播**。
+     */
+    public SessionResponse end(Long sessionId, Long teacherId) {
+        SessionResponse result = transactionTemplate.execute(
+                status -> endInTransaction(sessionId, teacherId));
+
+        pageBroadcaster.broadcastEnded(sessionId);
+        return result;
+    }
+
+    private SessionResponse endInTransaction(Long sessionId, Long teacherId) {
+        ClassSession session = requireSession(sessionId);
+
+        User teacher = session.getTeacher();
+        if (teacher == null || !teacher.getId().equals(teacherId)) {
+            // 与翻页同一条规矩：教师能开课，但不能结掉别人的课堂
+            throw new BusinessException(403, "这不是你的课堂");
+        }
+
+        if (session.getStatus() != SessionStatus.ENDED) {
+            session.setStatus(SessionStatus.ENDED);
+            session.setEndedAt(nowToSecond());
+            session = sessionRepository.save(session);
+            log.info("session_ended id={} teacherId={}", sessionId, teacherId);
+        }
+
+        return SessionResponse.from(session);
     }
 
     /**
@@ -146,7 +213,7 @@ public class ClassSessionService {
         // 首次翻页即开课：省掉一个「开始上课」接口，也少一个前端忘了调的状态。
         if (session.getStatus() == SessionStatus.NOT_STARTED) {
             session.setStatus(SessionStatus.LIVE);
-            session.setStartedAt(LocalDateTime.now());
+            session.setStartedAt(nowToSecond());
         }
         session.setCurrentPage(pageNo);
 
@@ -172,6 +239,19 @@ public class ClassSessionService {
     private ClassSession requireSession(Long sessionId) {
         return sessionRepository.findDetailById(sessionId)
                 .orElseThrow(() -> new BusinessException(404, "课堂不存在"));
+    }
+
+    /**
+     * 当前时间，**截到整秒**。
+     *
+     * <p>为什么不能直接用 {@code LocalDateTime.now()}：{@code class_session.started_at} /
+     * {@code ended_at} 是 {@code DATETIME}（0 位小数精度），而 MySQL 写入小数秒时是
+     * <b>四舍五入</b>而不是截断——`.912` 会被存成下一秒。
+     * 于是「刚下课」的响应返回 23:51:57、刷新后变成 23:51:58，
+     * 同一个字段两次读出来不一样。先截断再存，接口前后就一致了。
+     */
+    private LocalDateTime nowToSecond() {
+        return LocalDateTime.now().withNano(0);
     }
 
     /** 课堂名缺省用课件名；再兜一层默认值，避免出现空标题。 */

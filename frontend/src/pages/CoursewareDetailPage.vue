@@ -16,8 +16,19 @@ const error = ref('')
 
 /** 这个课件当前有没有正在直播的课堂。没有就是 null。 */
 const liveSession = ref(null)
+/**
+ * **我（当前教师）**在这份课件上尚未结束的课堂。没有就是 null。
+ *
+ * <p>为什么要单独存一份、而不能从 liveSession 里找：老师刚开完课、还没翻第一页时
+ * 状态是 NOT_STARTED，压根不在 /session/active 的结果里。只看 liveSession 的话，
+ * 老师一退出控制台就再也找不到自己的课了。
+ */
+const mySession = ref(null)
 const starting = ref(false)
 const actionError = ref('')
+
+/** 预览图加载失败时回退到纯文字版（见模板里的 @error 分支）。 */
+const previewImageFailed = ref(false)
 
 const currentPage = computed(() => pages.value[current.value] || null)
 
@@ -26,6 +37,7 @@ async function load() {
   error.value = ''
   actionError.value = ''
   liveSession.value = null
+  mySession.value = null
   try {
     const id = route.params.id
     detail.value = await http.get(`/courseware/${id}`)
@@ -42,14 +54,31 @@ async function load() {
   }
 }
 
-/** 查这个课件有没有在直播。拿不到就当作没有，不影响浏览课件。 */
+/** 查这个课件有没有在直播、以及我自己有没有课。拿不到就当作没有，不影响浏览课件。 */
 async function loadLive() {
+  const coursewareId = Number(route.params.id)
+
   try {
     const data = await http.get('/session/active')
-    liveSession.value =
-      (data.list || []).find((s) => s.coursewareId === Number(route.params.id)) || null
+    // 学生视角：任何人的直播都算
+    liveSession.value = (data.list || []).find((s) => s.coursewareId === coursewareId) || null
   } catch {
     liveSession.value = null
+  }
+
+  // 教师视角：还要看**自己**的课。它包含 NOT_STARTED（刚开课还没翻页），
+  // 这正是老师退出控制台后能回来的唯一依据。
+  if (!auth.isTeacher) {
+    mySession.value = null
+    return
+  }
+  try {
+    const data = await http.get('/session/mine')
+    mySession.value = (data.list || []).find((s) => s.coursewareId === coursewareId) || null
+  } catch {
+    // 拿不到就不显示「回到我的课堂」，但「开始上课」还在——而它本身是幂等的，
+    // 所以即使这条查询失败，老师也不会因此丢失自己的课堂。
+    mySession.value = null
   }
 }
 
@@ -69,6 +98,8 @@ async function startClass() {
 
 function selectPage(i) {
   current.value = i
+  // 换页要清掉回退标记，否则某一页渲染失败后，后面每一页都会一直是文字版
+  previewImageFailed.value = false
 }
 
 watch(() => route.params.id, load, { immediate: true })
@@ -83,14 +114,36 @@ watch(() => route.params.id, load, { immediate: true })
       </div>
 
       <div class="actions">
-        <!-- 有直播时，教师和学生都该看到这个入口 -->
-        <router-link v-if="liveSession" class="btn live" :to="`/live/${liveSession.id}`">
-          <span class="dot" aria-hidden="true"></span>
-          正在直播 · 进入课堂
+        <!--
+          教师：我自己在这份课件上的课堂，排在第一位。
+          这是老师退出控制台后唯一的回头路，而且它可能还没开始翻页（NOT_STARTED），
+          那时不会出现在「正在直播」里，所以必须单独查一次 /session/mine。
+        -->
+        <router-link v-if="mySession" class="btn primary" :to="`/teach/${mySession.id}`">
+          <span v-if="mySession.status === 'LIVE'" class="dot" aria-hidden="true"></span>
+          {{ mySession.status === 'LIVE' ? '回到我的课堂' : '回到我的课堂（未开始）' }}
         </router-link>
-        <!-- 开课按钮只给教师。这只是前端体验，真正的权限边界在后端
-             （POST /api/session 在 SecurityConfig 与 @PreAuthorize 上都限了 TEACHER） -->
-        <button v-if="auth.isTeacher" class="btn primary" :disabled="starting" @click="startClass">
+
+        <!-- 不是我的那节课：学生看到的入口；教师也能点进去旁观别人的课 -->
+        <router-link
+          v-if="liveSession && liveSession.id !== mySession?.id"
+          class="btn live"
+          :to="`/live/${liveSession.id}`"
+        >
+          <span class="dot" aria-hidden="true"></span>
+          {{ auth.isTeacher ? '其他老师的直播' : '正在直播 · 进入课堂' }}
+        </router-link>
+
+        <!-- 开课按钮：只给教师，且自己在这份课件上没有进行中的课堂时才出现。
+             真正的权限边界在后端（POST /api/session 在 SecurityConfig 与 @PreAuthorize
+             上都限了 TEACHER），而且 Service 里对「同一课件已有未结束课堂」做了幂等复用，
+             所以万一这个按钮还是被点了，也只会回到原来那节课，不会多开一节。 -->
+        <button
+          v-if="auth.isTeacher && !mySession"
+          class="btn primary"
+          :disabled="starting"
+          @click="startClass"
+        >
           {{ starting ? '开课中…' : '开始上课' }}
         </button>
       </div>
@@ -118,15 +171,21 @@ watch(() => route.params.id, load, { immediate: true })
         <template v-if="currentPage">
           <h2 class="page-no">第 {{ currentPage.pageNo }} 页</h2>
           <!--
-            这里用 iframe 真正渲染网页幻灯片（而不是把地址当文本打印出来）。
-            ⚠️ 幻灯片不存在时后端返回 HTTP 200 + 一行 JSON，iframe 里会显示 JSON 文字；
-            正常路径下页码来自 pages 列表，不会取到不存在的页。
+            这里显示的是后端真正渲染出来的整页 PPT 图片（图片、配色、排版都还原），
+            不是把文字倒进白底 div 的那份 HTML。后者仍保留为图片失败时的兜底。
           -->
+          <img
+            v-if="!previewImageFailed && detail"
+            class="slide"
+            :src="`/slides/${detail.id}/page${currentPage.pageNo}.png`"
+            :alt="`第 ${currentPage.pageNo} 页幻灯片`"
+            @error="previewImageFailed = true"
+          />
           <iframe
-            v-if="currentPage.slideUrl"
+            v-else-if="currentPage.slideUrl"
             class="slide"
             :src="currentPage.slideUrl"
-            :title="`第 ${currentPage.pageNo} 页幻灯片`"
+            :title="`第 ${currentPage.pageNo} 页幻灯片（文字版）`"
           ></iframe>
           <p v-if="currentPage.textContent" class="text">{{ currentPage.textContent }}</p>
           <p v-else class="text muted">（本页没有可抽取的文字）</p>
@@ -281,10 +340,13 @@ watch(() => route.params.id, load, { immediate: true })
 
 .slide {
   width: 100%;
-  height: 440px;
+  /* PPT 是 16:9。写死高度会把它压变形 */
+  aspect-ratio: 16 / 9;
+  object-fit: contain;
   border: 1px solid #eee;
   border-radius: 8px;
   background: #fff;
+  display: block;
 }
 
 .text {

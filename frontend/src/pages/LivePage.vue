@@ -25,7 +25,12 @@ const loading = ref(true)
 /** F004（学生问答智能体）尚未实现，相关接口返回 404。用它标记「问答区暂不可用」。 */
 const qaUnavailable = ref(false)
 
-const { currentPage: broadcastPage, connected, lastError } = usePageSync(
+const {
+  currentPage: broadcastPage,
+  connected,
+  lastError,
+  ended: broadcastEnded,
+} = usePageSync(
   route.params.sessionId,
   () => {
     askError.value = ''
@@ -35,9 +40,26 @@ const { currentPage: broadcastPage, connected, lastError } = usePageSync(
 /** 广播优先；还没收到广播时用接口里的 currentPage 兜底；都没有则是第 1 页。 */
 const currentPage = computed(() => broadcastPage.value ?? session.value?.currentPage ?? 1)
 
-const slideUrl = computed(() => {
+/** 已结束 = 接口查出来是 ENDED，或刚收到下课广播。 */
+const ended = computed(() => broadcastEnded.value || session.value?.status === 'ENDED')
+
+/** 整页 PPT 图片（后端渲染的真课件画面）。课堂还没加载出来时是 null。 */
+const slideImageUrl = computed(() => {
+  const id = session.value?.coursewareId
+  return id ? `/slides/${id}/page${currentPage.value}.png` : null
+})
+
+/** 纯文字版地址，图片加载失败时的兜底。 */
+const slideTextUrl = computed(() => {
   const id = session.value?.coursewareId
   return id ? `/slides/${id}/page${currentPage.value}.html` : null
+})
+
+const imageFailed = ref(false)
+
+// 换页要清掉回退标记，否则某一页渲染失败后，后面的页也会一直被锁在文字版
+watch(currentPage, () => {
+  imageFailed.value = false
 })
 
 /**
@@ -58,7 +80,13 @@ const pageIdByNo = computed(() => {
 const currentPageId = computed(() => pageIdByNo.value[currentPage.value] ?? null)
 
 const canAsk = computed(
-  () => !qaUnavailable.value && currentPageId.value !== null && !sending.value,
+  () =>
+    !qaUnavailable.value &&
+    currentPageId.value !== null &&
+    !sending.value &&
+    // 课都下课了就别再让学生提问了：AI 拿着本页知识点答一道已经结束的课的问题，
+    // 既没人看，也会在课后总结里混进噪声
+    !ended.value,
 )
 
 async function load() {
@@ -119,7 +147,8 @@ watch(() => route.params.sessionId, load, { immediate: true })
       <h1 class="title">{{ session?.title || '直播课堂' }}</h1>
       <div class="tags">
         <span v-if="session" class="tag page">第 {{ currentPage }} 页</span>
-        <span class="tag" :class="connected ? 'on' : 'off'">
+        <span v-if="ended" class="tag ended-tag">已结束</span>
+        <span v-else class="tag" :class="connected ? 'on' : 'off'">
           {{ connected ? '实时同步中' : '重连中…' }}
         </span>
       </div>
@@ -130,14 +159,33 @@ watch(() => route.params.sessionId, load, { immediate: true })
 
     <div v-else class="body">
       <section class="stage">
+        <!-- 下课了要明说，否则学生盯着最后一页不知道是自己卡了还是课上完了 -->
+        <p v-if="ended" class="ended-banner" role="status">
+          本节课已结束，感谢参与。
+        </p>
+
         <!--
-          学生看的是「和老师同步的那一页幻灯片」。
-          ⚠️ 幻灯片不存在时后端返回的是 HTTP 200 + 一行 JSON，iframe 里会显示 JSON 文字；
-          正常路径下页码始终来自 pages 列表，不会取到不存在的页。
+          学生看的是「和老师同步的那一页幻灯片」——现在是后端渲染好的整页 PPT 图片，
+          图片、配色、排版都和老师课件一致（以前这里是纯文字 HTML，所以看着不像 PPT）。
         -->
-        <iframe v-if="slideUrl" class="slide" :src="slideUrl" :title="`第 ${currentPage} 页`"></iframe>
+        <img
+          v-if="slideImageUrl && !imageFailed"
+          class="slide"
+          :src="slideImageUrl"
+          :alt="`第 ${currentPage} 页`"
+          @error="imageFailed = true"
+        />
+        <!-- 图片渲染失败时退回纯文字版，至少不白屏 -->
+        <iframe
+          v-else-if="slideTextUrl"
+          class="slide"
+          :src="slideTextUrl"
+          :title="`第 ${currentPage} 页（文字版）`"
+        ></iframe>
+
         <p class="stage-hint">
-          画面与老师翻页实时同步（视频直播是下一轮的事）。
+          <template v-if="ended">画面停在老师下课时的那一页。</template>
+          <template v-else>画面与老师翻页实时同步（视频直播是下一轮的事）。</template>
           <span v-if="lastError" class="warn">实时通道：{{ lastError }}</span>
         </p>
       </section>
@@ -242,10 +290,27 @@ watch(() => route.params.sessionId, load, { immediate: true })
 
 .slide {
   width: 100%;
-  height: 480px;
+  /* PPT 是 16:9。以前写死 480px 高度会把它压变形 */
+  aspect-ratio: 16 / 9;
+  object-fit: contain;
   border: 1px solid #eee;
   border-radius: 10px;
   background: #fff;
+  display: block;
+}
+
+.ended-tag {
+  color: #8a6d3b;
+  background: #fcf8e3;
+}
+
+.ended-banner {
+  font-size: 13px;
+  color: #8a6d3b;
+  background: #fcf8e3;
+  border: 1px solid #faebcc;
+  padding: 10px 14px;
+  border-radius: 8px;
 }
 
 .stage-hint {

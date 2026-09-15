@@ -48,4 +48,25 @@ public class PageBroadcaster {
             log.error("page_broadcast_serialize_failed sessionId={}", sessionId, ex);
         }
     }
+
+    /**
+     * 广播「下课」。
+     *
+     * <p>学生端收到后应当停止显示「等待老师翻页」，改显示「本节课已结束」——
+     * 否则页面会一直停在最后一页，学生不知道是自己卡了还是课已经上完。
+     *
+     * <p>同样必须**在事务提交之后**调用（见 {@code ClassSessionService.end}）：
+     * 事务回滚了却已经告诉学生「下课」，会把一节还在进行的课显示成已结束。
+     */
+    public void broadcastEnded(Long sessionId) {
+        Map<String, Object> message = new LinkedHashMap<>();
+        message.put("type", "ended");
+        message.put("serverTime", LocalDateTime.now().truncatedTo(ChronoUnit.SECONDS).toString());
+
+        try {
+            registry.broadcast(sessionId, objectMapper.writeValueAsString(message));
+        } catch (JsonProcessingException ex) {
+            log.error("ended_broadcast_serialize_failed sessionId={}", sessionId, ex);
+        }
+    }
 }
