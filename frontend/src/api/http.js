@@ -46,7 +46,16 @@ http.interceptors.response.use(
     const body = res.data
     if (body && typeof body === 'object' && 'code' in body) {
       if (body.code === 0) return body.data
-      return Promise.reject(new Error(body.message || '请求失败'))
+
+      const failure = new Error(body.message || '请求失败')
+      // 把业务码一起带出去。没有它，调用方只拿到一句 message，所有业务失败长得一模一样，
+      // 只能一律当红字报错——最典型的是 429「提问太快了」：它不是出错，是「等几秒就好」，
+      // 前端该做的是禁用按钮倒计时，而不是弹红字让学生反复点、反复收到同一句话。
+      //
+      // 叫 bizCode 不叫 code：axios 自己的错误也用 `code`（且是 'ECONNABORTED' 这种字符串），
+      // 两者混在一个字段上，下次读代码的人一定会看错。
+      failure.bizCode = body.code
+      return Promise.reject(failure)
     }
     return body
   },

@@ -3,6 +3,8 @@ import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import http from '@/api/http'
 import { useAuthStore } from '@/stores/auth'
+import { useAiParse } from '@/composables/useAiParse'
+import { usePromptPack } from '@/composables/usePromptPack'
 
 const route = useRoute()
 const router = useRouter()
@@ -32,6 +34,55 @@ const previewImageFailed = ref(false)
 
 const currentPage = computed(() => pages.value[current.value] || null)
 
+/**
+ * 当前课件 ID。
+ *
+ * 传成**函数**而不是值：同一个组件实例会被复用来显示不同课件
+ * （路由参数变、组件不重建），组合式函数里存一份快照就会一直查旧课件。
+ */
+function currentCoursewareId() {
+  return Number(route.params.id)
+}
+
+// ── AI 解析（F002）────────────────────────────────────────────────
+// 状态与轮询都收在组合式函数里，与教师的直播控制台共用同一套。
+const {
+  loaded: parseLoaded,
+  triggering: parseTriggering,
+  error: parseError,
+  status: parseStatus,
+  running: parseRunning,
+  percent: parsePercent,
+  everParsed: parseEverParsed,
+  needsAttention: parseNeedsAttention,
+  statusLabel: parseStatusLabel,
+  hint: parseHint,
+  refresh: refreshParse,
+  trigger: triggerParse,
+} = useAiParse(currentCoursewareId, { onSettled: onParseSettled })
+
+// ── 提示词包：AI 解析出来的知识点与预置提问 ────────────────────────
+const { pagePack, load: loadPack } = usePromptPack(currentCoursewareId)
+
+/** 当前页在提示词包里的那一条。没解析过、或本页确实没内容时是 null。 */
+const currentPack = computed(() => pagePack(currentPage.value?.id ?? null))
+const currentKnowledge = computed(() => currentPack.value?.knowledgePoints || [])
+const currentPresets = computed(() => currentPack.value?.presetQuestions || [])
+
+/** 解析收尾时刷新「解析的出产物」。轮询自己不知道要刷什么，所以由页面接这里。 */
+async function onParseSettled() {
+  await Promise.all([loadPack(), refreshDetail()])
+}
+
+/** 只刷新课件本身（状态会从 PARSING 变成 PARSED）。不碰 pages，老师选的页码不会被重置。 */
+async function refreshDetail() {
+  try {
+    detail.value = await http.get(`/courseware/${currentCoursewareId()}`)
+  } catch {
+    // 状态刷新失败不该清掉已经打开的课件
+  }
+}
+
 async function load() {
   loading.value = true
   error.value = ''
@@ -39,7 +90,7 @@ async function load() {
   liveSession.value = null
   mySession.value = null
   try {
-    const id = route.params.id
+    const id = currentCoursewareId()
     detail.value = await http.get(`/courseware/${id}`)
     const data = await http.get(`/courseware/${id}/pages`)
     pages.value = data.list || []
@@ -52,11 +103,16 @@ async function load() {
   } finally {
     loading.value = false
   }
+
+  // 解析状态与知识点放在正文之后、且**不 await**：
+  // 它们慢或者失败，都不该让课件正文打不开——知识点属于附加信息。
+  refreshParse()
+  loadPack()
 }
 
 /** 查这个课件有没有在直播、以及我自己有没有课。拿不到就当作没有，不影响浏览课件。 */
 async function loadLive() {
-  const coursewareId = Number(route.params.id)
+  const coursewareId = currentCoursewareId()
 
   try {
     const data = await http.get('/session/active')
@@ -87,7 +143,7 @@ async function startClass() {
   starting.value = true
   actionError.value = ''
   try {
-    const data = await http.post('/session', { coursewareId: Number(route.params.id) })
+    const data = await http.post('/session', { coursewareId: currentCoursewareId() })
     router.push(`/teach/${data.id}`)
   } catch (e) {
     actionError.value = e.message || '开课失败'
@@ -149,6 +205,69 @@ watch(() => route.params.id, load, { immediate: true })
       </div>
     </header>
 
+    <!--
+      AI 解析（F002）。只给教师看：后端 POST /api/courseware/{id}/parse 上
+      同时有 SecurityConfig 与 @PreAuthorize 两道 TEACHER 限制，这里只是不让学生
+      看到一个点了必然 403 的按钮。
+      放在正文上方，是因为「这份课件到底有没有被 AI 读懂」是老师开课**之前**
+      就该确认的事——学生提问全部答不出内容，根因往往就在这里。
+    -->
+    <section v-if="auth.isTeacher" class="parse">
+      <div class="parse-top">
+        <span class="parse-name">AI 解析</span>
+        <span
+          class="parse-state"
+          :class="{
+            ok: parseStatus === 'SUCCESS',
+            warn: parseNeedsAttention,
+            run: parseRunning,
+          }"
+        >
+          {{ parseLoaded ? parseStatusLabel : '查询中…' }}
+        </span>
+      </div>
+
+      <div
+        v-if="parseRunning"
+        class="bar"
+        role="progressbar"
+        :aria-valuenow="parsePercent"
+        aria-valuemin="0"
+        aria-valuemax="100"
+      >
+        <div class="bar-fill" :style="{ width: parsePercent + '%' }"></div>
+      </div>
+
+      <p v-if="parseHint" class="parse-hint" :class="{ warn: parseNeedsAttention }">
+        {{ parseHint }}
+      </p>
+      <p v-if="parseError" class="parse-hint warn" role="alert">{{ parseError }}</p>
+
+      <div class="parse-actions">
+        <button
+          class="btn primary"
+          :disabled="parseTriggering || parseRunning || !pages.length"
+          @click="triggerParse"
+        >
+          {{
+            parseTriggering
+              ? '提交中…'
+              : parseRunning
+                ? '解析中…'
+                : parseEverParsed
+                  ? '重新解析'
+                  : '开始 AI 解析'
+          }}
+        </button>
+        <span v-if="!loading && !pages.length" class="parse-tip">
+          这份课件没有页面，无法解析
+        </span>
+        <span v-else-if="parseEverParsed && !parseRunning" class="parse-tip">
+          重新解析会覆盖旧的解析结果
+        </span>
+      </div>
+    </section>
+
     <p v-if="actionError" class="banner error" role="alert">{{ actionError }}</p>
 
     <div v-if="loading" class="hint">加载中…</div>
@@ -189,6 +308,35 @@ watch(() => route.params.id, load, { immediate: true })
           ></iframe>
           <p v-if="currentPage.textContent" class="text">{{ currentPage.textContent }}</p>
           <p v-else class="text muted">（本页没有可抽取的文字）</p>
+
+          <!--
+            这一页 AI 到底读出了什么。老师需要它来验收解析质量：
+            知识点跑偏（比如把页脚当成知识点）时，只有在这里才看得出来。
+            学生端**不显示**知识点——那是 AI 助手的回答素材，直接摊开就没必要问了。
+          -->
+          <template v-if="auth.isTeacher">
+            <div v-if="currentKnowledge.length || currentPresets.length" class="kp">
+              <div v-if="currentKnowledge.length" class="kp-block">
+                <p class="kp-title">AI 提炼的知识点</p>
+                <ul class="kp-list">
+                  <li v-for="(k, i) in currentKnowledge" :key="i">{{ k }}</li>
+                </ul>
+              </div>
+              <div v-if="currentPresets.length" class="kp-block">
+                <p class="kp-title">AI 预置的提问</p>
+                <ul class="kp-list">
+                  <li v-for="(q, i) in currentPresets" :key="i">{{ q }}</li>
+                </ul>
+              </div>
+            </div>
+            <p v-else-if="parseRunning" class="kp-empty">本页正在解析中…</p>
+            <p v-else-if="parseEverParsed" class="kp-empty">
+              本页没有解析出内容。封面页、目录页、纯图片页会这样，属正常情况。
+            </p>
+            <p v-else class="kp-empty">
+              这份课件还没有 AI 解析，点上面的按钮跑一次，就能看到每页的知识点。
+            </p>
+          </template>
         </template>
         <p v-else class="hint">暂无页面</p>
       </section>
@@ -285,6 +433,145 @@ watch(() => route.params.id, load, { immediate: true })
 .banner.error {
   color: #c0392b;
   background: #fdf0ee;
+}
+
+/* ── AI 解析面板 ─────────────────────────────────────────────── */
+.parse {
+  background: #fff;
+  border: 1px solid #eee;
+  border-radius: 10px;
+  padding: 16px 18px;
+  margin-bottom: 16px;
+}
+
+.parse-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.parse-name {
+  font-size: 14px;
+  color: #333;
+  font-weight: 600;
+}
+
+.parse-state {
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  color: #888;
+  background: #f5f5f5;
+}
+
+.parse-state.ok {
+  color: #27ae60;
+  background: #eafaf1;
+}
+
+.parse-state.run {
+  color: #d97757;
+  background: #fff3e6;
+}
+
+.parse-state.warn {
+  color: #a06000;
+  background: #fff7e6;
+}
+
+.bar {
+  margin-top: 12px;
+  height: 6px;
+  border-radius: 3px;
+  background: #f0f0f0;
+  overflow: hidden;
+}
+
+.bar-fill {
+  height: 100%;
+  background: #d97757;
+  /* 进度是每页跳一次的，加过渡让它看起来是「在走」而不是「在跳」 */
+  transition: width 0.4s ease;
+}
+
+.parse-hint {
+  margin-top: 10px;
+  font-size: 13px;
+  color: #999;
+  line-height: 1.7;
+}
+
+.parse-hint.warn {
+  color: #a06000;
+}
+
+.parse-actions {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.parse-tip {
+  font-size: 12px;
+  color: #bbb;
+}
+
+/* ── 当前页的知识点 / 预置提问 ───────────────────────────────── */
+.kp {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px dashed #eee;
+  display: flex;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+
+.kp-block {
+  flex: 1;
+  min-width: 240px;
+}
+
+.kp-title {
+  font-size: 13px;
+  color: #d97757;
+  margin-bottom: 8px;
+}
+
+.kp-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.kp-list li {
+  font-size: 13px;
+  color: #555;
+  line-height: 1.7;
+  padding-left: 14px;
+  position: relative;
+}
+
+.kp-list li::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 9px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #e5c3b3;
+}
+
+.kp-empty {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px dashed #eee;
+  font-size: 13px;
+  color: #bbb;
+  line-height: 1.7;
 }
 
 .body {

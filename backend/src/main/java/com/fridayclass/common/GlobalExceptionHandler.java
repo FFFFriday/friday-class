@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.MultipartException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
@@ -61,6 +62,18 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
     public ApiResponse<Void> handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
         return ApiResponse.fail(400, "参数格式不正确：" + ex.getName());
+    }
+
+    /**
+     * 缺少必填的查询参数，例如调 {@code /api/qa/records} 时没带 {@code sessionId}。
+     *
+     * <p>属于客户端错误，必须返回 400。不单独处理的话会落到下面的兜底分支变成
+     * <b>500 并打一整段堆栈</b>，既误导前端（以为服务端挂了），
+     * 又让人可以靠反复请求来灌日志。
+     */
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ApiResponse<Void> handleMissingParameter(MissingServletRequestParameterException ex) {
+        return ApiResponse.fail(400, "缺少必填参数：" + ex.getParameterName());
     }
 
     /**

@@ -73,6 +73,12 @@ public class PptxConverter {
                 }
                 result.add(new Slide(i + 1, truncate(sb.toString().strip())));
             }
+        } catch (BusinessException ex) {
+            // 必须排在下面那个之前：BusinessException 是 RuntimeException 的子类，
+            // 被它接住的话，「课件页数过多」会被改写成「课件解析失败，请确认是有效的 .pptx 文件」——
+            // 用户明明只是页数超了，却被告知文件损坏；我们自己也没法从日志里看出真实原因。
+            // （SlideImageService 里是同一个写法，见那里的同名分支。）
+            throw ex;
         } catch (IOException | RuntimeException ex) {
             log.error("pptx_parse_failed path={}", pptxPath, ex);
             throw new BusinessException("课件解析失败，请确认是有效的 .pptx 文件");

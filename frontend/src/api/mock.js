@@ -26,8 +26,22 @@ const coursewareList = [
 ]
 
 const qaRecords = [
-  { id: 1, question: '这个知识点能再解释一下吗？', answer: '好的，这是针对当前页知识点的示例回答……', askedAt: '2026-09-10T10:30:00' },
+  { id: 1, pageId: 1002, pageNo: 3, question: '这个知识点能再解释一下吗？', answer: '好的，这是针对当前页知识点的示例回答……', status: 'SUCCESS', askedAt: '2026-09-10T10:30:00' },
 ]
+
+/**
+ * 课件页的假数据。页码与 ID 单独抽出来，是因为提示词包要按 **pageId** 与它对上：
+ * 两边用同一套 ID，快捷提问才能取到本页的预置问题（真实后端也是这个约束）。
+ */
+function mockPages(coursewareId) {
+  const n = Number(coursewareId) === 1 ? 20 : 10
+  return Array.from({ length: n }, (_, i) => ({
+    id: 1000 + i,
+    pageNo: i + 1,
+    textContent: `第 ${i + 1} 页内容摘要……`,
+    slideUrl: `/slides/${coursewareId}/page${i + 1}.html`,
+  }))
+}
 
 function ok(data) {
   return { code: 0, message: 'ok', data }
@@ -64,14 +78,57 @@ export function getMockResponse(method, url, data, params) {
   // 课件页列表 /courseware/{id}/pages
   const pagesMatch = url.match(/^\/courseware\/(\d+)\/pages$/)
   if (method === 'get' && pagesMatch) {
-    const n = Number(pagesMatch[1]) === 1 ? 20 : 10
-    const pages = Array.from({ length: n }, (_, i) => ({
-      id: 1000 + i,
-      pageNo: i + 1,
-      textContent: `第 ${i + 1} 页内容摘要……`,
-      slideUrl: `/slides/${pagesMatch[1]}/page${i + 1}.html`,
-    }))
-    return ok({ list: pages })
+    return ok({ list: mockPages(pagesMatch[1]) })
+  }
+
+  // ── AI 解析（F002）────────────────────────────────────────────
+  // 触发与查进度返回同一个形状（后端就是这么设计的），前端不必分两套解析
+  if (method === 'post' && /^\/courseware\/\d+\/parse$/.test(url)) {
+    return ok({
+      coursewareId: 1,
+      coursewareStatus: 'PARSING',
+      taskId: 2,
+      status: 'RUNNING',
+      currentPage: 0,
+      totalPages: 20,
+      progress: 0,
+      errorMessage: null,
+      startedAt: '2026-09-15T10:00:00',
+      finishedAt: null,
+    })
+  }
+
+  const parseProgressMatch = url.match(/^\/courseware\/(\d+)\/parse-progress$/)
+  if (method === 'get' && parseProgressMatch) {
+    const pages = mockPages(parseProgressMatch[1])
+    return ok({
+      coursewareId: Number(parseProgressMatch[1]),
+      coursewareStatus: 'PARSED',
+      taskId: 1,
+      status: 'SUCCESS',
+      currentPage: pages.length,
+      totalPages: pages.length,
+      progress: 100,
+      errorMessage: null,
+      startedAt: '2026-09-15T10:00:00',
+      finishedAt: '2026-09-15T10:01:46',
+    })
+  }
+
+  // 提示词包 /courseware/{id}/prompt-pack
+  const packMatch = url.match(/^\/courseware\/(\d+)\/prompt-pack$/)
+  if (method === 'get' && packMatch) {
+    return ok({
+      coursewareId: Number(packMatch[1]),
+      parseVersion: 1,
+      parseStatus: 'PARSED',
+      pages: mockPages(packMatch[1]).map((p) => ({
+        pageId: p.id,
+        pageNo: p.pageNo,
+        knowledgePoints: [`第 ${p.pageNo} 页的示例知识点一`, `第 ${p.pageNo} 页的示例知识点二`],
+        presetQuestions: [`第 ${p.pageNo} 页的示例思考题？`],
+      })),
+    })
   }
 
   // 上传课件
@@ -90,7 +147,17 @@ export function getMockResponse(method, url, data, params) {
 
   // 问答
   if (method === 'post' && url === '/qa/ask') {
-    return ok({ id: Date.now(), question: data?.question || '', answer: '（示例回答）这是针对当前页知识点的 AI 回答……', askedAt: new Date().toISOString() })
+    return ok({
+      id: Date.now(),
+      pageId: data?.pageId ?? null,
+      pageNo: null,
+      question: data?.question || '',
+      answer: '（示例回答）这是针对当前页知识点的 AI 回答……',
+      // status 必须给：前端按 SUCCESS / FAILED / SKIPPED 三种走不同分支，
+      // 少了它会被当成「既不是 SKIPPED 也不是 FAILED」的普通回答，看不出问题
+      status: 'SUCCESS',
+      askedAt: new Date().toISOString(),
+    })
   }
   if (method === 'get' && url === '/qa/records') return ok({ list: qaRecords })
 

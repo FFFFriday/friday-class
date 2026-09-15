@@ -66,9 +66,15 @@ public class SecurityConfig {
                         // 不能只靠 Controller 上的 @PreAuthorize——那时 multipart 已解析完、
                         // 文件已写入磁盘，学生可借此反复上传撑爆磁盘。
                         .requestMatchers(HttpMethod.POST, "/api/courseware/upload").hasRole("TEACHER")
+                        // 触发 AI 解析：仅教师。这个接口会让服务端真的调用**付费**模型
+                        // （一份 79 页课件约 0.8 元），绝不能让学生或未登录者触发。
+                        // 解析本身在后台异步跑，但这一步是花钱的闸门，必须卡死。
+                        .requestMatchers(HttpMethod.POST, "/api/courseware/*/parse").hasRole("TEACHER")
                         // 门户课件公开视图：只放行契约中明确公开的 3 个路径，
                         // 不用 /api/courseware/** 整棵子树——否则将来新增的 GET
                         // （如原始 .pptx 下载、导出）会被一并匿名暴露。
+                        // 注意 /{id}/prompt-pack 与 /{id}/parse-progress **不在**这里：
+                        // 它们含知识点内容（课堂内部资料），需登录才能看。
                         .requestMatchers(HttpMethod.GET,
                                 "/api/courseware",
                                 "/api/courseware/{id}",

@@ -47,6 +47,10 @@ storage/
 
 # ===== Claude Code 本地设置（个人配置，不入库）=====
 .claude/settings.local.json
+# git worktree 的临时副本（138 个文件的整仓拷贝）。
+# 它自带 .git，会被 git 当成「嵌套仓库」记一条 gitlink，
+# 而那条记录指向一个没推到任何远端的提交 —— 别人克隆下来就是个坏引用。
+.claude/worktrees/
 
 # ===== Playwright MCP 调试产物（截图 / 快照 / console 日志，不入库）=====
 .playwright-mcp/

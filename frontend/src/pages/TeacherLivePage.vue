@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import http from '@/api/http'
 import { usePageSync } from '@/composables/usePageSync'
+import { useAiParse } from '@/composables/useAiParse'
 
 const route = useRoute()
 
@@ -13,6 +14,26 @@ const loading = ref(true)
 const jumping = ref(false)
 /** 翻页失败只提示、不清空页面——直播画面不该因为一次请求失败就消失。 */
 const pageError = ref('')
+
+/**
+ * AI 解析状态（F002）。
+ *
+ * 老师在这里看到的理由：课件没解析过时，学生提问是**静默失败**的——
+ * 学生那边只会看到「本页暂无解析内容」，老师在讲台上完全不知道。
+ * 所以这件事必须在开课时就摆在老师面前，并给一个一键处理的入口。
+ */
+const {
+  loaded: parseLoaded,
+  triggering: parseTriggering,
+  error: parseError,
+  status: parseStatus,
+  running: parseRunning,
+  percent: parsePercent,
+  statusLabel: parseStatusLabel,
+  hint: parseHint,
+  refresh: refreshParse,
+  trigger: triggerParse,
+} = useAiParse(() => session.value?.coursewareId)
 
 const totalPages = computed(() => pages.value.length)
 
@@ -38,6 +59,31 @@ const endError = ref('')
 /** 已结束 = 接口查出来是 ENDED，或刚收到下课广播。两者任一成立。 */
 const ended = computed(() => broadcastEnded.value || session.value?.status === 'ENDED')
 
+/**
+ * 课堂上真正会「卡住」AI 助手的两种情况：从没解析过、上次解析失败。
+ *
+ * ⚠️ 故意**不含 PARTIAL**：部分页失败时绝大多数页是好的，课上反复提示只会让老师分心，
+ * 而且他此刻也没法处理。那种情况在课件详情页看得到——那里才是验收解析质量的地方。
+ */
+const parseBlocking = computed(() => parseStatus.value === null || parseStatus.value === 'FAILED')
+
+/**
+ * 在课堂上触发解析。比课件详情页多一道二次确认，原因见下。
+ *
+ * 解析一开始，课件状态就变成 PARSING，而 QaService 在 PARSING 状态下
+ * 对**所有页**都返回「课件还在解析中」——注意是**不调模型**的那种直接跳过。
+ * 也就是说老师一点下去，全班学生的 AI 助手立刻停摆，69 页的课件大约要 100 秒。
+ *
+ * 这不是一个能随手点的按钮，所以和「下课」一样要二次确认。
+ */
+async function startParse() {
+  const ok = window.confirm(
+    '开始解析后，课件会进入「解析中」状态，全班学生的 AI 助手都会暂时收到「课件还在解析中」，直到解析结束。\n\n确定现在解析吗？',
+  )
+  if (!ok) return
+  await triggerParse()
+}
+
 // 换页要先清掉上一页的回退标记，否则某一页渲染失败会让后面所有页都退化成文字版
 watch(currentPage, () => {
   imageFailed.value = false
@@ -53,6 +99,9 @@ async function load() {
 
     const pageList = await http.get(`/courseware/${data.coursewareId}/pages`)
     pages.value = pageList.list
+
+    // 拿到 coursewareId 才能查解析状态。不 await：它失败不该挡住直播控制台
+    refreshParse()
   } catch (e) {
     pageError.value = e.message || '加载失败'
     session.value = null
@@ -178,6 +227,44 @@ watch(() => route.params.sessionId, load, { immediate: true })
     <p v-else-if="endError" class="msg msg-error" role="alert">{{ endError }}</p>
     <p v-else-if="lastError" class="msg msg-warn" role="status">{{ lastError }}</p>
 
+    <!--
+      AI 解析出问题（或正在跑）时才摆到老师面前。
+      解析顺利、以及「只有几页失败」的课上都不出现——课堂上不需要那块信息，
+      老师此刻也没法处理，反复提示只会分心。
+    -->
+    <section
+      v-if="parseLoaded && (parseBlocking || parseRunning)"
+      class="ai-banner"
+      :class="{ warn: parseBlocking }"
+    >
+      <div class="ai-row">
+        <span class="ai-label">AI 解析</span>
+        <span class="ai-state">{{ parseStatusLabel }}</span>
+        <span class="ai-hint">{{ parseHint }}</span>
+        <button
+          v-if="parseBlocking"
+          class="btn ai-btn"
+          :disabled="parseTriggering"
+          @click="startParse"
+        >
+          {{ parseTriggering ? '提交中…' : parseStatus === null ? '立即解析' : '重新解析' }}
+        </button>
+      </div>
+
+      <div
+        v-if="parseRunning"
+        class="ai-bar"
+        role="progressbar"
+        :aria-valuenow="parsePercent"
+        aria-valuemin="0"
+        aria-valuemax="100"
+      >
+        <div class="ai-bar-fill" :style="{ width: parsePercent + '%' }"></div>
+      </div>
+
+      <p v-if="parseError" class="ai-error" role="alert">{{ parseError }}</p>
+    </section>
+
     <div v-if="loading" class="empty">加载中…</div>
     <div v-else-if="!session" class="empty error-text">课堂不存在或加载失败</div>
 
@@ -285,6 +372,77 @@ watch(() => route.params.sessionId, load, { immediate: true })
 .btn-end:hover:not(:disabled) {
   border-color: #e74c3c;
   color: #e74c3c;
+}
+
+/* ── AI 解析提醒 ─────────────────────────────────────────────── */
+.ai-banner {
+  background: #fff;
+  border: 1px solid #eee;
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+
+/* 要老师动手时才上暖色边；正在解析时保持中性，不刺眼 */
+.ai-banner.warn {
+  border-color: #f0d9b0;
+  background: #fffdf7;
+}
+
+.ai-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ai-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #333;
+}
+
+.ai-state {
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  color: #d97757;
+  background: #fff3e6;
+}
+
+.ai-hint {
+  flex: 1;
+  min-width: 200px;
+  font-size: 12px;
+  color: #999;
+  line-height: 1.6;
+}
+
+/* 必须排在 .btn 之后：同为单类选择器，靠顺序覆盖内边距 */
+.ai-btn {
+  padding: 6px 14px;
+  font-size: 13px;
+}
+
+.ai-bar {
+  margin-top: 10px;
+  height: 5px;
+  border-radius: 3px;
+  background: #f0f0f0;
+  overflow: hidden;
+}
+
+.ai-bar-fill {
+  height: 100%;
+  background: #d97757;
+  /* 进度是每页跳一次的，加过渡让它看起来是「在走」而不是「在跳」 */
+  transition: width 0.4s ease;
+}
+
+.ai-error {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #c0392b;
 }
 
 .ended-banner {

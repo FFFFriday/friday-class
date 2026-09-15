@@ -121,10 +121,14 @@ CREATE TABLE `qa_record` (
   `question`   TEXT            NOT NULL                COMMENT '学生提问文本（≤500 字）',
   `answer`     TEXT            NULL                    COMMENT 'AI 回答文本',
   `status`     VARCHAR(20)     NOT NULL DEFAULT 'SUCCESS' COMMENT '问答状态：SUCCESS 已作答 / FAILED 调用失败（便于学情统计区分）',
+  `client_request_id` VARCHAR(64) NULL                  COMMENT '幂等键，客户端生成的 UUID；同一 ID 重复提交直接返回上次结果',
   `asked_at`   DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '提问时间',
   `created_at` DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `updated_at` DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   PRIMARY KEY (`id`),
+  -- 幂等靠它兜底：并发重复提交时只有一个 INSERT 能成功，另一个撞唯一键。
+  -- MySQL 唯一索引不约束 NULL，所以不带幂等键的历史数据（多条 NULL）不受影响。
+  UNIQUE KEY `uk_qa_client_req` (`client_request_id`),
   KEY `idx_qa_session` (`session_id`),
   KEY `idx_qa_student` (`student_id`),
   KEY `idx_qa_page` (`page_id`),

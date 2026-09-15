@@ -4,8 +4,8 @@
 >
 > | 部分 | 内容 | 性质 |
 > |---|---|---|
-> | 第一 ~ 五节 | 8 个 `/api` 接口 + 1 个静态资源接口 | ✅ **实测**，逐行读代码得出，**现在就能调通** |
-> | 第六节 | 7 个尚未实现的接口 | 📐 **设计规格**，来自契约与设计文档，**代码里还没有** |
+> | 第一 ~ 五节 | 9 个 `/api` 接口 + 1 个静态资源接口 | ✅ **实测**，逐行读代码得出，**现在就能调通** |
+> | 第六节 | AI 与课堂接口 | ✅ **2026-09-15 已全部实现**（原为「尚未实现」的设计规格）。本节保留规格描述，并标注实现后的 7 处偏差 |
 >
 > **来源**：`backend/src/main/java`（controller / dto / common / config / security / service）、
 > `db/schema.sql`、`docs/api-contract.md`、`docs/ai-agent-design.md`、`frontend/src`。
@@ -14,7 +14,12 @@
 > 本文第一节是**已完成部分的实测说明**，第六节把契约里尚未实现的部分**补成了同等详细度的规格**。
 > 三方字段名经过核对一致。
 >
-> 最后核对时间：2026-09-14　｜　对应当前 `main` 分支代码
+> 最后核对时间：**2026-09-15**　｜　对应当前 `main` 分支代码
+>
+> **2026-09-15 这一版的变化**：F002（AI 课件解析）与 F004（学生问答）全部实现并跑通真实模型，
+> 契约里的接口至此**全部落地**。第六节从「设计规格」变成「已实现 + 7 处实现偏差说明」，
+> 并新增 §6.3b（触发解析接口）与 §6.11（**只有真调模型才会知道的 7 件事**）。
+> 改动明细见 [附录 C.5](#c5-第五轮2026-09-15ai-功能实现)。
 
 ## 目录
 
@@ -25,7 +30,7 @@
 | [三](#三认证模块) | 认证模块 | 注册 / 登录 / me / 改密码 |
 | [四](#四课件模块) | 课件模块 | 列表 / 上传 / 详情 / 页列表 |
 | [五](#五网页幻灯片静态资源) | 网页幻灯片 | `/slides/...` |
-| **[六](#六尚未实现的接口完整设计规格)** | **尚未实现的接口** | **7 个接口的完整规格 + 6 个必须先修的坑** |
+| **[六](#六尚未实现的接口完整设计规格)** | **AI 与课堂接口** | **已实现**；含 7 处实现偏差 + §6.11「只有真调模型才会知道的 7 件事」 |
 | [七](#七快速自测) | 快速自测 | 可直接复制粘贴的 curl |
 | [八](#八前端对接速查) | 前端对接速查 | 约定与已知问题 |
 | [附录 A](#附录-a错误码速查) | 错误码速查 | |
@@ -43,7 +48,7 @@
 | 后端端口 | `8081` | 8080 被本机 nginx 占用 |
 | 后端根地址 | `http://localhost:8081` | |
 | API 前缀 | `/api` | **幻灯片接口例外**，见 §5 |
-| 前端开发端口 | `5173` | Vite，已配 `/api`、`/slides` 两个代理指向 8081 |
+| 前端开发端口 | `5173` | Vite，已配 `/api`、`/slides`、`/ws`（带 `ws: true`）三个代理指向 8081 |
 | 前端 baseURL | `/api` | `frontend/src/api/http.js` 里 axios 的配置 |
 
 前端开发时浏览器访问 `http://localhost:5173`，由 Vite 代理转发到 8081，**不产生跨域**。
@@ -164,7 +169,8 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiJ9...
 
 ### 2.1 已实现（✅ 现在就能调通）
 
-共 **8 个** `/api` 接口，另有 1 个静态资源接口。
+共 **19 个** `/api` 接口，另有 **2 个静态资源接口**（`/slides/...html` 与 `.png`）和
+**1 个 WebSocket 接口**（`/ws/page`）。
 
 | # | 方法 | 路径 | 权限 | 说明 |
 |---:|---|---|---|---|
@@ -176,29 +182,38 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiJ9...
 | 6 | POST | `/api/courseware/upload` | **仅 TEACHER** | 上传 .pptx 并同步解析 |
 | 7 | GET | `/api/courseware/{id}` | 匿名 | 课件详情 |
 | 8 | GET | `/api/courseware/{id}/pages` | 匿名 | 课件页列表 |
-| 9 | GET | `/slides/{coursewareId}/page{pageNo}.html` | 匿名 | 单页网页幻灯片（HTML） |
+| 9 | GET | `/slides/{coursewareId}/page{pageNo}.html` | 匿名 | 单页网页幻灯片（HTML 文字版） |
+| 10 | GET | `/slides/{coursewareId}/page{pageNo}.png` | 匿名 | 单页幻灯片**图片**（POI 渲染，F003 补） |
+| 11 | POST | `/api/session` | 仅 TEACHER | F003 创建课堂（**幂等**，已有未结束的课堂则复用） |
+| 12 | GET | `/api/session/{id}` | 需登录 | F003 课堂详情 |
+| 13 | GET | `/api/session/active` | 需登录 | F003 正在直播的课堂 |
+| 14 | GET | `/api/session/mine` | 仅 TEACHER | F003 我名下未结束的课堂 |
+| 15 | POST | `/api/session/{id}/page` | 仅 TEACHER | F003 翻页（**先落库、再广播**） |
+| 16 | POST | `/api/session/{id}/end` | 仅 TEACHER | F003 下课（幂等） |
+| 17 | WS | `/ws/page?sessionId={id}` | 首帧鉴权 | F003 翻页广播 |
+| 18 | GET | `/api/courseware/{id}/prompt-pack` | 需登录 | F002 提示词包（一次拉全知识点） |
+| 19 | GET | `/api/courseware/{id}/parse-progress` | 需登录 | F002 解析进度 |
+| 20 | POST | `/api/courseware/{id}/parse` | **仅 TEACHER** | F002 **触发** AI 解析（2026-09-15 新增） |
+| 21 | POST | `/api/qa/ask` | 需登录 | F004 学生提问 |
+| 22 | GET | `/api/qa/records` | 需登录 | F004 问答记录 |
 
 **「匿名」的含义**：`SecurityConfig` 的白名单里显式放行了这几个**具体路径**（没有用 `/api/courseware/**` 通配，
 避免以后新增的 GET 被一并公开）。带不带 token 都能访问；带了也不会报错。
 
-### 2.2 尚未实现（📐 只有规格，见 [第六节](#六尚未实现的接口完整设计规格)）
+> ⚠️ **`/{id}/prompt-pack` 与 `/{id}/parse-progress` 故意不在匿名白名单里**：
+> 它们含知识点内容，属于课堂内部资料。注意这两个是「需登录」而不是「匿名」，
+> 与相邻的 `/api/courseware/{id}`（匿名）不同，很容易误以为整个 `/api/courseware/**` 都公开。
 
-**调这些接口现在都调不通**：不带令牌返回 `HTTP 401`，带合法令牌返回 `HTTP 404` + `接口不存在`
-（细节见 §6.0 的表格）。
+### 2.2 尚未实现
 
-| # | 方法 | 路径 | 权限 | 功能 |
-|---:|---|---|---|---|
-| 10 | GET | `/api/courseware/{id}/prompt-pack` | 需登录 | F002 提示词包（一次拉全知识点） |
-| 11 | GET | `/api/courseware/{id}/parse-progress` | 需登录 | F002 解析进度 |
-| 12 | POST | `/api/session` | 仅 TEACHER | F003 创建课堂 |
-| 13 | GET | `/api/session/{id}` | 需登录 | F003 课堂详情 |
-| 14 | POST | `/api/qa/ask` | 需登录 | F004 学生提问 |
-| 15 | GET | `/api/qa/records` | 需登录 | F004 问答记录 |
-| 16 | WS | `/ws/page?sessionId={id}` | 需登录 | F003 翻页广播 |
+**没有了。** 契约里定义的接口到 2026-09-15 已全部实现。
 
-> 🔴 **动手前先读第六节的 §6.1「实现前必须先把这 6 个问题处理掉」**：
-> 有 6 个「数据库 / 实体 / 契约 / 看板」对不上的地方（两个实体缺字段、幂等键无处落地、版本号无来源、
-> 看板来源标注错误、前端 pageId 写死），不先修掉，接口写完也是错的。
+唯一还没做的是 **F005 课后总结** 与 **F006 学情统计**——它们不在 MVP 范围内，
+`course_summary` 表已建好但没有任何接口读写它。
+
+> 📌 **§6.1 那 6 个「必须先修」的问题已全部处理完毕**，逐条结果见 [§6.1.1](#611-这-6-个问题最终怎么处理的)。
+> 其中 P2 / P3 是 2026-09-15 真正改了库和实体的，P1 / P6 在 F003 那轮修掉了，
+> P4 按原建议实现（不加列），P5 已按本文件补的规格实现。
 
 ---
 
@@ -738,23 +753,30 @@ curl -i "http://localhost:8081/slides/1/page1.html"
 
 ## 六、尚未实现的接口（完整设计规格）
 
-### 6.0 阅读须知：本节与前面五节的性质不同
+### 6.0 阅读须知：本节已由「规格」变成「已实现」
 
-| | 第一 ~ 五节 | **本节** |
+| | 本节原来的性质 | **现在的性质** |
 |---|---|---|
-| 来源 | 逐行读代码得出 | `docs/api-contract.md` + `docs/ai-agent-design.md` + `db/schema.sql` |
-| 性质 | **实测**，现在就能调通 | **设计规格**，代码尚未实现 |
-| 可信度 | 与代码逐字核对过 | 与契约/设计文档一致，但**实现时可能有微调** |
+| 来源 | `docs/api-contract.md` + `docs/ai-agent-design.md` + `db/schema.sql` | 同上 + **`llm/`、`service/AiParseService`、`service/QaService` 的真实代码** |
+| 性质 | **设计规格**，代码尚未实现 | ✅ **2026-09-15 全部实现并跑通真实链路** |
+| 可信度 | 与契约/设计文档一致，但**实现时可能有微调** | 与代码逐字核对过；**下面标了 7 处实现时偏离规格的地方** |
 
-**调用本节任何接口，现在都调不通**——因为后端没有任何对应的 Controller。但**报什么错取决于你有没有带令牌**：
+> **当时的「调不通」现象已不复存在。** 保留这条历史记录是因为它有教学价值：
+> 在此之前调这些接口，不带令牌看到的是 `HTTP 401`、带令牌看到的是 `HTTP 404`。
+> **401 会让人以为「接口存在、只是要登录」**，于是跑去登录再调，才看到 404，白折腾一轮——
+> `SecurityConfig` 是「拒绝优先」，认证失败就停在过滤链，压根走不到「找 Controller」那一步。
 
-| 你怎么调 | 实际返回 | 为什么 |
-|---|---|---|
-| **不带 token** | **HTTP 401** + `{"code":401,"message":"未登录或登录已过期"}` | `SecurityConfig` 是「拒绝优先」，白名单之外一律先要认证。**认证失败就停在过滤链，压根走不到「找 Controller」那一步** |
-| 带合法 token | **HTTP 404** + `{"code":404,"message":"接口不存在"}` | 认证过了，才发现没有匹配的 Controller → `NoResourceFoundException` |
+#### 实现时偏离规格的 7 处（都写清了为什么）
 
-> ⚠️ 这个区别值得记一下：**不带令牌时看到的 401 会让人误以为「接口存在，只是要登录」**，
-> 于是跑去登录、再调、才看到 404，白折腾一轮。
+| # | 规格原文 | 实际实现 | 为什么 |
+|---:|---|---|---|
+| 1 | 解析 `max_tokens` = 400 | **4000，上限 8000** | 🔴 **照规格写会每页都返回空**——`deepseek-flash` 是推理模型，思考 token 也计入 `max_tokens`。实测 400 全部被思考吃光、正文为空且 `finish_reason=length`。见 §6.11 |
+| 2 | 问答总预算「≤20 秒」 | 真的加了总时限闸门 | 原实现只有「单次超时 × 次数」，最坏 27 秒，**光靠这个约束不了总量** |
+| 3 | 只有「查解析进度」，没有「触发解析」 | 新增 `POST /{id}/parse` | 规格隐含着「上传后自动解析」，但上传前就存在的课件没有入口，演示时也无法重跑 |
+| 4 | 响应 `status` 只有 `SUCCESS`/`FAILED` | 新增 `SKIPPED` | 三种「没调模型」的情况（解析中/解析失败/本页无内容）没有值可表达 |
+| 5 | 进度字段 `currentPage` = 「已处理到的页」 | 语义改为「**已完成页数**」 | 页是**并发**解析的，「当前第几页」没有意义 |
+| 6 | 进度按 `courseware.page_count` 算 | 改按**实际页数**（`COUNT(courseware_page)`） | 库里真有不一致的数据（`page_count=20` 但实际 5 行），会让进度条永远走不满 |
+| 7 | 解析并发数未定义 | 页级并发 3（`app.ai.page-concurrency`） | 顺序解析 79 页要 2.5 分钟以上；并发后约 1 分钟 |
 
 规格的来源逐接口标注：
 
@@ -783,23 +805,34 @@ curl -i "http://localhost:8081/slides/1/page1.html"
 > 另有两处**不是错误、但要提前知道**：
 >
 > - **`/ws` 要同步加 Vite 代理**，且必须带 `ws: true`。否则 WebSocket 请求落到 Vite 自己身上被 SPA 兜底。
->   （教训来源：`/slides` 曾经就漏了代理，见 `frontend-gotchas` 记忆。）
-> - **`spring-boot-starter-websocket` 依赖已就位**（`backend/pom.xml` 里已有），
->   但代码里**没有任何** `WebSocketConfig` / `Handler`，是纯新增。
+>   （教训来源：`/slides` 曾经就漏了代理，见 `frontend-gotchas` 记忆。）——**已于 F003 加上，`vite.config.js` 里 `/ws` 带 `ws: true`**。
+> - **`spring-boot-starter-websocket` 依赖已就位**，且 `WebSocketConfig` / `PageWebSocketHandler` **已实现**（F003）。
+
+#### 6.1.1 这 6 个问题最终怎么处理的
+
+| # | 结果 |
+|---|---|
+| **P1** `class_session.current_page` 实体缺字段 | ✅ **已修**（F003 那轮）——`ClassSessionService.changePageInTransaction` 会 `setCurrentPage` |
+| **P2** `qa_record.status` 实体缺字段 | ✅ **已修**（2026-09-15）——新增 `enums/QaStatus`，实体补 `status` 字段 |
+| **P3** 幂等键 `clientRequestId` 库里没列 | ✅ **已修**（2026-09-15）——`db/schema.sql` 加列 + `UNIQUE KEY uk_qa_client_req`，并对现有库执行了 `ALTER TABLE` |
+| **P4** `parseVersion` 无来源 | ✅ **按原建议实现**——用该课件最近一次 `SUCCESS`/`PARTIAL` 任务的 `ai_parse_task.id`，库里不加列。从未成功解析过时返回 `0` |
+| **P5** `parse-progress` 只在看板里 | ✅ **已按本文件补的规格实现**（`项目看板.md` 的错误来源标注仍未改，属文档问题） |
+| **P6** 前端 `pageId` 写死为 1 | ✅ **已修**（F003 那轮）——`LivePage.vue` 用 `pageIdByNo` 从 `pageNo` 反查 |
 
 ---
 
 ### 6.2 接口清单
 
-| # | 方法 | 路径 | 权限 | 功能 | 来源 |
-|---:|---|---|---|---|---|
-| 1 | GET | `/api/courseware/{id}/prompt-pack` | 需登录 | F002 | 📄 契约 2.5　🧠 设计 §3.2 |
-| 2 | GET | `/api/courseware/{id}/parse-progress` | 需登录 | F002 | ➕ 本文件补（见 P5） |
-| 3 | POST | `/api/session` | 仅 TEACHER | F003 | 📄 契约 3.1 |
-| 4 | GET | `/api/session/{id}` | 需登录 | F003 | 📄 契约 3.2 |
-| 5 | POST | `/api/qa/ask` | 需登录 | F004 | 📄 契约 4.1　🧠 设计 §3.3~3.8 |
-| 6 | GET | `/api/qa/records` | 需登录 | F004 | 📄 契约 4.2 |
-| 7 | WS | `/ws/page?sessionId={id}` | 需登录 | F003 | 📄 契约 5.1 |
+| # | 方法 | 路径 | 权限 | 功能 | 来源 | 状态 |
+|---:|---|---|---|---|---|---|
+| 1 | GET | `/api/courseware/{id}/prompt-pack` | 需登录 | F002 | 📄 契约 2.5　🧠 设计 §3.2 | ✅ |
+| 2 | GET | `/api/courseware/{id}/parse-progress` | 需登录 | F002 | ➕ 本文件补（见 P5） | ✅ |
+| 2b | POST | `/api/courseware/{id}/parse` | **仅 TEACHER** | F002 触发解析 | ➕ 本文件补（见 §6.0 偏差 3） | ✅ |
+| 3 | POST | `/api/session` | 仅 TEACHER | F003 | 📄 契约 3.1 | ✅ |
+| 4 | GET | `/api/session/{id}` | 需登录 | F003 | 📄 契约 3.2 | ✅ |
+| 5 | POST | `/api/qa/ask` | 需登录 | F004 | 📄 契约 4.1　🧠 设计 §3.3~3.8 | ✅ |
+| 6 | GET | `/api/qa/records` | 需登录 | F004 | 📄 契约 4.2 | ✅ |
+| 7 | WS | `/ws/page?sessionId={id}` | 首帧鉴权 | F003 | 📄 契约 5.1 | ✅ |
 
 **已建好但还没用上的地基**（只差 Controller 与 Service）：
 
@@ -825,7 +858,7 @@ curl -i "http://localhost:8081/slides/1/page1.html"
 | `coursewareStatus` | string | 课件状态：`UPLOADED`/`CONVERTING`/`CONVERTED`/`PARSING`/`PARSED`/`FAILED` |
 | `taskId` | number \| null | 最近一次解析任务 ID；**从未解析过则为 `null`** |
 | `status` | string \| null | 任务状态：`PENDING`/`RUNNING`/`SUCCESS`/`FAILED`/`PARTIAL` |
-| `currentPage` | number | 已处理到的页（0 表示还没开始） |
+| `currentPage` | number | **已完成页数**（0 表示还没开始）。⚠️ **语义与原规格不同**：页是并发解析的，「当前处理到第几页」没有意义，已完成数才是前端口径正确的进度 |
 | `totalPages` | number \| null | 总页数 |
 | `progress` | number | 百分比，0~100，由 `currentPage / totalPages` 算出，前端可直接用来画进度条 |
 | `errorMessage` | string \| null | 失败原因（`FAILED` 时有值） |
@@ -852,6 +885,50 @@ curl -i "http://localhost:8081/slides/1/page1.html"
 
 - **错误**：课件不存在 → `code=404` `课件不存在`
 - **前端轮询建议**：解析中每 **2~3 秒**查一次；`status` 变为 `SUCCESS`/`FAILED`/`PARTIAL` 后**停止轮询**。
+
+---
+
+### 6.3b 触发 AI 解析（本文件新增）
+
+> ➕ **来源：本文件补**（见 §6.0 偏差 3）。规格与设计文档都只定义了「查进度」，
+> 没有定义「怎么开始解析」——它们隐含假设「上传时自动解析」。
+> 但那管不到上传功能上线**之前**就已存在的课件，演示时也没有重跑的入口。
+
+- **`POST /api/courseware/{id}/parse`**　权限：**仅 TEACHER**
+- **请求体**：无
+- **响应 `data`**：与 §6.3 的 `parse-progress` **完全同构**（触发时直接返回当前进度，通常是 0%，前端不必再补一次 GET）
+
+```json
+{
+  "code": 0, "message": "ok",
+  "data": {
+    "coursewareId": 24, "coursewareStatus": "PARSING",
+    "taskId": 2, "status": "RUNNING",
+    "currentPage": 0, "totalPages": 69, "progress": 0,
+    "errorMessage": null, "startedAt": "2026-09-15T09:05:23", "finishedAt": null
+  }
+}
+```
+
+- **行为**：**立即返回**，真正的逐页解析在后台跑（一份 103 页课件要调 103 次模型，
+  同步做的话这个请求要挂好几分钟）。
+- **重复点击不会重复解析**：同一份课件已有未结束的任务时返回下面这条错误。
+
+| 场景 | HTTP | `code` | `message` |
+|---|---:|---:|---|
+| 学生调用 | **403** | 403 | `无权访问` |
+| 未登录 | 401 | 401 | `未登录或登录已过期` |
+| 课件不存在 | 200 | 404 | `课件不存在` |
+| 课件没有页面 | 200 | 400 | `该课件还没有可解析的页面，无法解析` |
+| 正在解析中 | 200 | 400 | `该课件正在解析中，请稍后刷新进度` |
+
+> 🔴 **这个接口真的会花钱**（约 0.005 元/次调用 × 页数，一份 69 页课件约 0.36 元），
+> 所以它是**唯一一个除了上传之外需要教师角色的写接口**，`SecurityConfig` 和 Controller 两处都卡了角色。
+>
+> 🔴 **重启后端会让「解析中」的任务变成失败**：解析跑在内存里，进程一没线程就没了，
+> 而数据库里还写着 `RUNNING`。`StaleParseTaskCleaner` 在启动时把这些僵尸任务标成 `FAILED`
+> 并写明「服务重启导致解析中断，请重新解析」。
+> **不做这件事的话，那份课件会永远无法再次解析**（数据库层的防重复检查会一直拦住它）。
 
 ---
 
@@ -1033,7 +1110,7 @@ curl -i "http://localhost:8081/slides/1/page1.html"
 | `pageId` | number | 提问时所在页 |
 | `question` | string | 问题原文 |
 | `answer` | string | AI 回答；**`status=FAILED` 时是友好提示文案**，不是报错 |
-| `status` | string | `SUCCESS` 已作答 / `FAILED` 调用失败（**依赖 P2 先补字段**） |
+| `status` | string | `SUCCESS` 已作答 / `FAILED` 调用失败 / **`SKIPPED` 根本没调模型**（2026-09-15 新增，见下） |
 | `askedAt` | string | 提问时间 |
 
 ```json
@@ -1065,14 +1142,25 @@ curl -i "http://localhost:8081/slides/1/page1.html"
 
 **四种「没有答案」要分开提示**（🧠 设计 §3.5，这是 V2 修正的重点）：
 
-| 情况 | 学生看到 | 是否调模型 |
-|---|---|---|
-| 课件还在解析 | 「课件还在解析中，稍后再试」 | ❌ |
-| 课件解析失败 | 「本页内容解析失败，请告诉老师」 | ❌ |
-| 本页确实没有知识点 | 「本页暂无解析内容，可先听老师讲解」 | ❌ |
-| 调用超时/失败 | 「AI 助教暂时忙不过来，请稍后再试」 | ✅（失败后） |
+| 情况 | 学生看到 | 是否调模型 | 返回的 `status` | 是否落库 |
+|---|---|---|---|---|
+| 课件还在解析 | 「课件还在解析中，稍后再试」 | ❌ | **`SKIPPED`** | **否** |
+| 课件解析失败 | 「本页内容解析失败，请告诉老师」 | ❌ | **`SKIPPED`** | **否** |
+| 本页确实没有知识点 | 「本页暂无解析内容，可先听老师讲解」 | ❌ | **`SKIPPED`** | **否** |
+| 调用超时/失败 | 「AI 助教暂时忙不过来，请稍后再试」 | ✅（失败后） | `FAILED` | **是** |
 
 > V1 曾把这四种统一成「本页暂无解析内容」，会在解析中误导学生。
+
+> 🔴 **`SKIPPED` 是 2026-09-15 新增的值**（原规格只定义了 `SUCCESS`/`FAILED`，见 §6.0 偏差 4）。
+> 三种情况都要满足两件事：**不调模型**（省一次冤枉钱）且**不写 `qa_record`**。
+>
+> 不落库的理由有两个，第二个很容易忽略：
+> 1. 落库会把「没问成」记成「问过了」，**污染 F006 的学情统计**；
+> 2. 学生刷新页面后会从记录列表中读出一条**根本不是自己问答历史的记录**，
+>    而且它下次刷新还在——看起来像数据错乱。
+>
+> **前端必须区别处理**：`SKIPPED` 的响应里 `id` 和 `askedAt` 都是 `null`，
+> 应当作**临时提示**渲染，**不要**追加进问答列表。
 
 **其他设计约定**（🧠 设计 §3.4 / 3.7 / 3.8）：
 
@@ -1180,27 +1268,90 @@ curl -i "http://localhost:8081/slides/1/page1.html"
 
 ---
 
-### 6.10 建议的实现顺序
+### 6.10 实现顺序（已完成）
 
-按「能不能独立验证」排序，先把不依赖模型的部分做掉：
-
-| 顺序 | 内容 | 依赖模型？ | 说明 |
+| 顺序 | 内容 | 依赖模型？ | 状态 |
 |---:|---|---|---|
-| 0 | **修 P1 / P2**（给两个实体补字段） | — | 后面所有事的先决条件 |
-| 1 | `POST /api/session` + `GET /api/session/{id}` | ❌ | 纯 CRUD，能立刻用 curl 验证 |
-| 2 | **WebSocket 翻页广播** | ❌ | 不依赖直播推流方案，`streamPullUrl` 留 `null` 即可 |
-| 3 | `GET /api/courseware/{id}/prompt-pack` | ❌ | 表里有数据就能返回；没数据就是空数组 |
-| 4 | `parse-progress` | ❌ | 依赖 `ai_parse_task`，可与上一步一起做 |
-| 5 | **F002 解析智能体** | ✅ | 🛑 卡在 DeepSeek API Key |
-| 6 | `POST /api/qa/ask` + `GET /api/qa/records` | ✅ | 🛑 同上 |
+| 0 | **修 P1 / P2 / P3** | — | ✅ 完成 |
+| 1 | `POST /api/session` + `GET /api/session/{id}` | ❌ | ✅ F003 |
+| 2 | **WebSocket 翻页广播** | ❌ | ✅ F003 |
+| 3 | `GET /api/courseware/{id}/prompt-pack` | ❌ | ✅ 2026-09-15 |
+| 4 | `parse-progress` | ❌ | ✅ 2026-09-15 |
+| 5 | **F002 解析智能体** | ✅ | ✅ 2026-09-15 |
+| 6 | `POST /api/qa/ask` + `GET /api/qa/records` | ✅ | ✅ 2026-09-15 |
 
-> **关于 DeepSeek Key 的处理约定（已确认）**：F002 / F004 的**模型调用处先用假数据 stub**
-> 把前后端链路跑通，之后再换成真实调用。
+> ⚠️ **原计划「先用假数据 stub 跑通链路」已被放弃**——用户提供了 API Key，直接接了真实模型。
+> 这是更好的选择：stub 方案有两个已知风险（要防止静默、要防止被误当完工），
+> 接真模型就完全绕开了。同时也顺便实测出了 §6.11 那些**只有真调才会暴露**的问题。
+
+---
+
+### 6.11 只有真调模型才会知道的事（2026-09-15 实测）
+
+这一节的每一条都是用真实 API、真实课件跑出来的，**读规格和读代码都看不出来**。
+
+#### ① `deepseek-flash` 是推理模型，`max_tokens` 会被思考吃光
+
+响应的 `usage.completion_tokens_details.reasoning_tokens` 非零，**计入 `completion_tokens` 计费，
+但不出现在 `content` 里**。同一段文字的 reasoning 长度**方差极大**（实测 150 ~ 2839）。
+
+| `max_tokens` | completion | 其中 reasoning | `finish_reason` | `content` |
+|---:|---:|---:|---|---|
+| 20 | 20 | 20 | `length` | **空** |
+| 400（**规格里定的值**） | 400 | 400 | `length` | **空** |
+| 800 | 279 | 150 | `stop` | 完整 JSON ✅ |
+| 1200 | 1200 | 1163 | `length` | **截断** |
+| 2000 | 323 | 184 | `stop` | 完整 JSON ✅ |
+
+> 🔴 **按规格写 `max_tokens=400`，每一页都会返回空字符串**，而且 HTTP 是 200、不报错。
+> 这是最难查的一类失败。实现里最终取 **4000，截断后加倍至 8000**。
 >
-> ⚠️ 实施时必须做到两点，否则会踩上次 `USE_MOCK` 那个坑（界面显示"上传成功"、实际一个请求都没发）：
-> 1. **stub 要有明显的运行日志**（如 `WARN ai_stub_used pageId=103`），不能静默；
-> 2. **stub 不能被误当成已完工**——代码里留 `// TODO(stub): 换成真实 DeepSeek 调用`，
->    并在 `项目看板.md` 上明确标注「当前为 stub，未接真模型」。
+> 注意大预算**不花钱**——计费按实际生成的 token 算，不按上限算。给少了反而要重发一次请求。
+
+#### ② 截断是**随机**发生的，必须显式识别
+
+注意上表 **800 成功而 1200 失败**——reasoning 长度不是按预算成比例增长的。
+真实跑一份 69 页课件，**6% 的页触发了截断**（日志 `llm_truncated_escalate`）。
+
+所以判定「模型答了没答」**不能只看 HTTP 状态码**，必须看 `finish_reason == "length"`：
+截断时要用更大的预算重发，而不是当成 JSON 解析失败。
+
+#### ③ 模型 ID 写错**不会报错**
+
+传一个不存在的 ID（如 `deepseek-v4-flash`），服务端**静默回退到 `deepseek-flash`**，
+响应里的 `model` 字段才说明真相。别指望靠报错发现拼写错误。
+
+#### ④ 模型默认输出 Markdown
+
+正文里会带 `**粗体**`。前端按安全要求用纯文本插值、**禁用 `v-html`**，
+所以提示词里必须显式写「只输出纯文本，不要 Markdown 标记」——
+实测加上这句后 `**` 消失。
+
+#### ⑤ 页级并发会引发 MySQL 死锁
+
+「先删该页旧知识点、再插新的」在并发下会死锁：
+
+```
+Deadlock found when trying to get lock;
+  insert into knowledge_point (content,created_at,page_id,sort_order) values (?,?,?,?)
+```
+
+`DELETE ... WHERE page_id = ?` 走 `page_id` 索引，在 REPEATABLE READ 下取的是**间隙锁**
+（即使一行都没删到）。多个线程分别删除相邻 page_id 的区间后再插入，
+插入意向锁与对方的间隙锁互斥，成环。
+
+**修法**：模型调用保持并发（那才是慢的部分，1.5 秒/次），
+**写库串行化**（几毫秒/次，69 页总共多花几百毫秒），外加死锁重试兜底。
+
+#### ⑥ 进度必须按**实际页数**算，不能按 `courseware.page_count`
+
+库里真有不一致的数据：某课件 `page_count = 20`，`courseware_page` 只有 5 行。
+按 `page_count` 算的话，任务已经 `SUCCESS` 了进度条却停在 25%，比不显示进度更让人困惑。
+
+#### ⑦ 实测成本
+
+约 **0.005 元 / 次调用**（2026-09-15 实测：69 页课件解析约 0.36 元，含重试）。
+配合 §3.8 的去重缓存，**5 次学生问答只调了 2 次模型**（相同问题跨学生命中缓存 + 并发相同问题合并）。
 
 
 
@@ -1425,3 +1576,59 @@ curl -s -X POST "$BASE/api/courseware/upload" \
 > **实测是 HTTP 200 + 400**——Spring 的路径模板把 `{pageNo}` 匹配成了**空字符串**，
 > 于是类型转换失败，而不是路径不匹配。
 > 一个只在读代码、没跑请求的核对者很容易写错这条。
+
+### C.5 第五轮（2026-09-15）：AI 功能实现
+
+这一轮把契约里剩下的接口**全部实现并用真实模型跑通**。以下是核对与实测记录。
+
+**改动的代码**（新增 16 个文件、修改 12 个）：
+
+| 层 | 文件 |
+|---|---|
+| LLM 客户端 | `llm/DeepSeekClient`、`llm/CallKind`、`llm/LlmResult`、`llm/LlmException`、`llm/PromptTemplates` |
+| 解析（F002） | `service/AiParseService`、`service/StaleParseTaskCleaner`、`config/AiExecutorConfig` |
+| 提示词包 | `service/PromptPackService` |
+| 问答（F004） | `service/QaService` |
+| 接口 | `controller/CoursewareAiController`、`controller/QaController` |
+| DTO / 枚举 | `ParseProgressResponse`、`PromptPackResponse`、`PageTextItem`、`QaAskRequest`、`QaRecordResponse`、`enums/QaStatus` |
+| 改库 / 实体 | `db/schema.sql`（+`client_request_id` +唯一索引）、`entity/QaRecord`（+`status`、+`clientRequestId`、`asked_at` 去掉 `@CreationTimestamp`） |
+
+**真实请求跑出来的结论**（全部对着运行中的后端 + 真实 DeepSeek API）：
+
+| 验证项 | 实测结果 |
+|---|---|
+| 学生调 `POST /api/courseware/{id}/parse` | HTTP **403** `无权访问` |
+| 未登录调同上 | HTTP **401** |
+| 教师触发解析 69 页课件 | 106 秒跑完，进度 0→100% 平滑推进 |
+| 解析中重复触发 | `400 该课件正在解析中，请稍后刷新进度` |
+| 学生提问（正常） | 2.0 秒返回，答案贴合该页知识点、纯文本无 Markdown |
+| 同一 `clientRequestId` 重发 | **0.0 秒**返回同一条记录（`id` 相同），未再调模型 |
+| 5 秒内连续提问 | `200` + `code=429` `提问太快了，请稍等几秒再问` |
+| 传别的课件的 `pageId` | `400 页码与当前课堂不匹配` |
+| 问题为空 / 501 字 | `400 问题不能为空` / `400 问题最长 500 个字符` |
+| 对未解析课件提问 | `status=SKIPPED`、`id=null`、`本页暂无解析内容，可先听老师讲解` |
+| `GET /api/qa/records` 不带 `sessionId` | `400 缺少必填参数：sessionId` |
+| **跨学生相同问题** | 第二个学生 **0.1 秒**命中缓存，答案完全一致 |
+| **两学生同时问同一新问题** | 2.3 秒、答案完全一致，**只调了 1 次模型**（single-flight 生效） |
+| 5 次问答的总模型调用数 | **2 次** |
+| 成本 | 69 页课件解析约 **0.36 元**（含 4 次截断重试） |
+
+**这一轮暴露并修掉的 4 个真问题**（都是只有真跑才会发现的）：
+
+| # | 问题 | 修法 |
+|---:|---|---|
+| 1 | 按规格的 `max_tokens=400` 会让每页返回**空**（推理模型吃光预算） | 提到 4000 / 上限 8000，并按 `finish_reason=length` 加倍重试 |
+| 2 | 问答「≤20 秒」**只是个愿望**：单次 8s + 连接 5s，重试一次就是 27s | 加总时限闸门，发起前先算「下一次尝试装不装得进预算」 |
+| 3 | 页级并发引发 **MySQL 死锁**（`DELETE` 的间隙锁 vs `INSERT` 的插入意向锁） | 模型调用保持并发，**写库串行化** + 死锁重试 |
+| 4 | 进度按 `courseware.page_count` 算，库里两者不一致 → 进度条卡在 25% 却报 SUCCESS | 改按 `COUNT(courseware_page)` |
+
+**顺带修的 2 处**：
+
+- `GlobalExceptionHandler` 补 `MissingServletRequestParameterException` → 400。
+  此前缺少必填查询参数会落到兜底分支变成 **500 并打整段堆栈**。
+- `QaRecord.askedAt` 去掉 `@CreationTimestamp`：它会在 insert 时覆盖手动设的值，
+  导致接口返回的时间与落库时间不一致（MySQL 对 `DATETIME` 的小数秒是**四舍五入**）。
+  改为 Service 显式赋「截到整秒」的值，与 `ClassSessionService` 对 `started_at` 的处理一致。
+
+**仍未做**：F005 课后总结、F006 学情统计（不在 MVP 范围）；
+前端尚未对接本轮 5 个接口（`LivePage.vue` 里还留着「F004 开发中」的兜底逻辑）。
