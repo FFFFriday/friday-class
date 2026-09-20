@@ -40,25 +40,49 @@ cd backend && mvn spring-boot:run          # → http://localhost:8081
 cd frontend && npm install && npm run dev  # → http://localhost:5173
 ```
 
-> ### ⚠️ 模型调用报「Connect timed out」怎么办
+> ### ⚠️ 模型调用报「Connect timed out」——这是本机网络问题，不是代码缺陷
 >
-> 症状：AI 回答一律是「AI 助教暂时忙不过来，请稍后再试」，日志里是
-> `Connect timed out` 连 `api.deepseek.com/chat/completions`，
-> **但 `curl` 打同一个地址却完全正常**。
+> **症状**：AI 回答变成「AI 助教暂时忙不过来，请稍后再试」；日志里是
+> `Connect timed out` 连 `api.deepseek.com/chat/completions`；
+> **而同一时刻 `curl` 打同一个地址只要 0.2 秒**。时好时坏，极像网络抖动。
 >
-> 原因：本机有一条指向链路本地网关的 `::/0` 默认路由（多半来自虚拟机网卡），
-> JVM 据此认为 IPv6 可用并优先尝试；而 `api.deepseek.com` **只有 IPv4 地址**。
-> curl 会 Happy Eyeballs 自动回落，JVM 不会，于是一直卡到连接超时。
+> **原因**（2026-09-21 实测确认）：`api.deepseek.com` 有**两条 A 记录**，
 >
-> **已经修好了**：`backend/pom.xml` 里的 `spring-boot-maven-plugin` 配了
-> `<jvmArguments>-Djava.net.preferIPv4Stack=true</jvmArguments>`，
-> `mvn spring-boot:run` 自动生效。
+> | 地址 | 从本机 |
+> |---|---|
+> | `124.225.27.128` | ❌ **不可达**（TCP 连接直接超时） |
+> | `171.105.220.186` | ✅ 正常（约 66ms） |
 >
-> 用 `java -jar` 直接跑打包产物时这个配置**不生效**，需要自己带上：
+> 而 **DNS 返回的顺序会轮换**。坏地址排前面时每次调用都失败，排后面时一切正常——
+> 这就是「时好时坏」的来源。
+>
+> **两个内置 HTTP 客户端都不做地址回落**（都实测过）：`HttpURLConnection`
+> 只用第一个地址（超时放宽到 20 秒仍失败）；JDK 的 `java.net.http.HttpClient`
+> 同样失败。只有 `curl` 会 Happy Eyeballs 自动回落，所以它一直正常。
+>
+> **识别口诀：`curl` 能通、Java 程序不能通 → 查解析地址与回落。**
+>
+> **这是本机到 DeepSeek 某台服务器的路由问题，改代码解决不了。** 缓解办法：
 >
 > ```bash
-> java -Djava.net.preferIPv4Stack=true -jar backend/target/friday-class-backend-*.jar
+> # ① 先确认现在解析到哪几个地址
+> nslookup api.deepseek.com
+>
+> # ② 逐个探通不通（把 IP 换成上面查到的）
+> curl -s -o /dev/null -w "%{http_code} %{time_connect}s\n" --max-time 8 --resolve api.deepseek.com:443:124.225.27.128 https://api.deepseek.com
+> curl -s -o /dev/null -w "%{http_code} %{time_connect}s\n" --max-time 8 --resolve api.deepseek.com:443:171.105.220.186 https://api.deepseek.com
+>
+> # ③ 若确认只有一个通，把它固定进 hosts 文件（需要管理员权限）：
+> #    C:\Windows\System32\drivers\etc\hosts 追加一行：
+> #    171.105.220.186  api.deepseek.com
+> #    ⚠️ 这会让所有程序都走这个 IP。DeepSeek 换 IP 时要记得删掉。
 > ```
+>
+> **演示前的自检**：跑一句 curl，0.2 秒内返回就说明现在是通的。
+>
+> ⚠️ 排查时**别再试这两个被证伪的方向**：
+> 「JVM 优先走 IPv6」（`-Djava.net.preferIPv4Stack=true` 实测无效）、
+> 「换 JDK HttpClient 就好了」（实测无效）。
 
 ## 技术栈
 

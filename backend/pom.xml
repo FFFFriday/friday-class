@@ -118,24 +118,19 @@
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <configuration>
                     <!--
-                        强制走 IPv4。
-                        ⚠️ 这不是可有可无的调优，是本机跑得起来的前提之一。
+                        这里曾经配过 -Djava.net.preferIPv4Stack=true，**已移除**。
 
-                        本机存在一条指向**链路本地网关**的 ::/0 默认路由（多半来自虚拟机网卡），
-                        于是 JVM 认为「IPv6 可用」并优先尝试；而 api.deepseek.com
-                        **只有 IPv4 地址**（无 AAAA 记录），本机也没有可用的 IPv6 出口。
-                        结果：每个模型调用都卡到连接超时，报 `Connect timed out`。
+                        当时把「模型调用间歇性 Connect timed out」误判成了
+                        「JVM 优先走 IPv6、而 DeepSeek 只有 IPv4」。
+                        2026-09-21 实测证明那条结论是错的：加上这个参数后问题照旧。
 
-                        curl 不受影响——它会做 Happy Eyeballs 自动回落到 IPv4。
-                        所以「**curl 能通、程序不能通**」正是这个问题的典型症状。
+                        真正的原因见 DeepSeekClient.buildClient 的注释：
+                        api.deepseek.com 有两条 A 记录，其中一条从本机不可达，
+                        而原来的 HttpURLConnection 只用第一个解析地址、失败不换。
+                        修法是换用 JDK 的 HttpClient（在代码里，不需要 JVM 参数）。
 
-                        症状极易被误判成「网络抖动」：时好时坏、重试偶尔能过。
-                        实际上原因只有一个，而且不修的话**每次都会失败**。
-
-                        用 java -jar 直接跑打包产物时，这个配置不生效，要自己带上：
-                          java -Djava.net.preferIPv4Stack=true -jar xxx.jar
+                        诊断口诀：**curl 能通、Java 程序不能通** → 去查解析地址与回落。
                     -->
-                    <jvmArguments>-Djava.net.preferIPv4Stack=true</jvmArguments>
                     <excludes>
                         <exclude>
                             <groupId>org.projectlombok</groupId>

@@ -291,6 +291,41 @@ public class DeepSeekClient {
         }
     }
 
+    /**
+     * 建一个针对某种调用场景的 RestClient。
+     *
+     * <h3>⚠️ 关于本机「模型调用间歇性 Connect timed out」——已知问题，非代码缺陷</h3>
+     *
+     * 2026-09-21 实测确认，症状与结论如下：
+     *
+     * <p>症状：AI 回答变成「AI 助教暂时忙不过来」；日志里是
+     * {@code Connect timed out}（或换成 JDK HttpClient 后的
+     * {@code HTTP connect timed out}）；<b>而同一时刻 {@code curl} 打同一个地址
+     * 只要 0.24 秒</b>。时好时坏，极像网络抖动。
+     *
+     * <p><b>真实原因</b>：{@code api.deepseek.com} 有<b>两条 A 记录</b>——
+     * {@code 124.225.27.128} 与 {@code 171.105.220.186}。
+     * 前者从本机网络<b>不可达</b>（TCP 连接直接超时），后者正常（约 66ms）。
+     * 而 DNS 返回的<b>顺序会轮换</b>。于是坏地址排前面时必失败、排后面时一切正常。
+     *
+     * <p><b>两个内置客户端都不回落</b>（都实测过）：
+     * <ul>
+     *   <li>{@code HttpURLConnection}（默认的 {@code SimpleClientHttpRequestFactory}）：
+     *       只用第一个地址，把连接超时放宽到 20 秒仍然失败；</li>
+     *   <li>JDK 的 {@code java.net.http.HttpClient}：同样失败，每次都在
+     *       {@code connectTimeout}（5 秒）耗尽后抛 {@code HttpConnectTimeoutException}。</li>
+     * </ul>
+     * 只有 {@code curl} 会做 Happy Eyeballs 自动回落，所以它一直正常——
+     * <b>「curl 能通、程序不能通」正是这个问题的识别特征</b>。
+     *
+     * <p><b>这是本机到 DeepSeek 某台服务器的路由问题，应用层改不动。</b>
+     * 可行的缓解手段：把可用地址固定进 hosts 文件，或换网络环境。
+     * 排查命令见项目 README 的「Connect timed out 怎么办」。
+     *
+     * <p>⚠️ 排查时<b>别再往这两个方向想</b>（都是被证伪的旧结论）：
+     * 「JVM 优先走 IPv6」（实测 {@code -Djava.net.preferIPv4Stack=true} 无效，已移除）、
+     * 「换 JDK HttpClient 就好了」（实测无效，已回退）。
+     */
     private RestClient buildClient(String baseUrl, CallKind kind) {
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(CONNECT_TIMEOUT);
