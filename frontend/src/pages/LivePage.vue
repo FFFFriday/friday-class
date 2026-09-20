@@ -21,9 +21,20 @@ import { useClassChat } from '@/composables/useClassChat'
 import { useScreenViewer } from '@/composables/useScreenViewer'
 import { usePromptPack } from '@/composables/usePromptPack'
 import ClassChatPanel from '@/components/features/ClassChatPanel.vue'
+import PageKnowledgePanel from '@/components/features/PageKnowledgePanel.vue'
 import { FcButton } from '@/components/base'
 
 const route = useRoute()
+
+/**
+ * 右侧三块。用标签页而不是三个面板堆叠——
+ * 都摆出来的话中间的视频区会被压得很小，而视频才是学生要看的主内容。
+ */
+const TABS = [
+  { key: 'chat', label: '讨论区' },
+  { key: 'knowledge', label: '知识点' },
+  { key: 'qa', label: 'AI 问答' },
+]
 
 const session = ref(null)
 const pages = ref([])
@@ -172,9 +183,30 @@ const coursewareId = computed(() => session.value?.coursewareId ?? null)
  * 那一刻包里还是空的。不盯着解析进度自动重拉的话，学生会一直看到
  * 「本页暂无解析内容」，而实际上解析十几秒后就跑完了。
  */
-const { pagePack, load: loadPack } = usePromptPack(() => coursewareId.value, {
+const {
+  pagePack,
+  load: loadPack,
+  loading: packLoading,
+  parseStatus: packParseStatus,
+  parsed: packParsed,
+} = usePromptPack(() => coursewareId.value, {
   watchParsing: true,
 })
+
+/** 当前页的提示词素材（知识点 + 预置提问）。拿不到时是 null。 */
+const currentPack = computed(() => pagePack(currentPageId.value))
+
+/**
+ * 点「本页思考题」的 chip：填进提问框，**不自动发出**。
+ *
+ * 学生的意图往往是「在这基础上改一下再问」，直接发出去会白花一次模型调用。
+ * 顺手切到「AI 问答」标签，让填好的输入框立刻可见——
+ * 否则学生点完 chip 什么都没发生，会以为按钮坏了。
+ */
+function useQuestionFromKnowledge(text) {
+  question.value = text
+  activeTab.value = 'qa'
+}
 
 /** 广播优先；还没收到广播时用接口里的 currentPage 兜底；都没有则是第 1 页。 */
 const currentPage = computed(() => broadcastPage.value ?? session.value?.currentPage ?? 1)
@@ -282,11 +314,6 @@ async function load() {
   } finally {
     loading.value = false
   }
-}
-
-/** 点预置思考题：只填进输入框，**不直接发出去**——避免手滑白花一次模型调用。 */
-function usePreset(text) {
-  question.value = text
 }
 
 async function ask() {
@@ -441,24 +468,16 @@ watch(() => route.params.sessionId, load, { immediate: true })
       <aside class="side">
         <div class="side__tabs" role="tablist">
           <button
+            v-for="tab in TABS"
+            :key="tab.key"
             class="side__tab"
-            :class="{ 'side__tab--on': activeTab === 'chat' }"
+            :class="{ 'side__tab--on': activeTab === tab.key }"
             type="button"
             role="tab"
-            :aria-selected="activeTab === 'chat'"
-            @click="activeTab = 'chat'"
+            :aria-selected="activeTab === tab.key"
+            @click="activeTab = tab.key"
           >
-            讨论区
-          </button>
-          <button
-            class="side__tab"
-            :class="{ 'side__tab--on': activeTab === 'qa' }"
-            type="button"
-            role="tab"
-            :aria-selected="activeTab === 'qa'"
-            @click="activeTab = 'qa'"
-          >
-            AI 问答
+            {{ tab.label }}
           </button>
         </div>
 
@@ -481,6 +500,21 @@ watch(() => route.params.sessionId, load, { immediate: true })
             @load-older="loadOlder"
           />
 
+          <!--
+            知识点面板（M3）。数据其实一直都有（usePromptPack 早就在拉），
+            只是以前只喂给 AI、没渲染给学生看。页码联动是免费的：
+            currentPageId 跟着翻页广播走，这里自然就换内容了。
+          -->
+          <PageKnowledgePanel
+            v-else-if="activeTab === 'knowledge'"
+            :pack="currentPack"
+            :parse-status="packParseStatus"
+            :parsed="packParsed"
+            :loading="packLoading"
+            :page-no="currentPage"
+            @use-question="useQuestionFromKnowledge"
+          />
+
           <div v-else class="qa">
             <div class="qa-list">
               <div v-for="r in records" :key="r.id" class="qa-item">
@@ -496,21 +530,12 @@ watch(() => route.params.sessionId, load, { immediate: true })
             </div>
 
             <!--
-              本页的预置思考题（AI 解析时生成）。点一下填进输入框，不直接发出去——
-              既省得学生自己组织语言，也顺手告诉他「这一页准备了哪几个方向」。
+              本页思考题搬到了「知识点」标签。那里能连知识点一起看，
+              点一下会带着内容跳回本标签——同一份内容不必在两个标签里各显示一遍。
             -->
-            <div v-if="currentPresets.length" class="presets">
-              <p class="presets-title">本页思考题</p>
-              <button
-                v-for="(q, i) in currentPresets"
-                :key="i"
-                class="preset"
-                :disabled="!canAsk"
-                @click="usePreset(q)"
-              >
-                {{ q }}
-              </button>
-            </div>
+            <p v-if="currentPresets.length" class="qa-preset-hint">
+              本页有 {{ currentPresets.length }} 个思考题，见「知识点」标签
+            </p>
 
             <!-- SKIPPED 提示：没调模型、也没落库，所以只在这里显示，不进上面的列表 -->
             <p v-if="skippedNotice" class="qa-notice">{{ skippedNotice }}</p>
@@ -800,41 +825,11 @@ watch(() => route.params.sessionId, load, { immediate: true })
   line-height: 1.8;
 }
 
-.presets {
-  border-top: 1px solid var(--fc-border);
-  padding: 12px 18px 4px;
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-}
-
-.presets-title {
+.qa-preset-hint {
   font-size: var(--fc-font-xs);
-  color: var(--fc-primary);
-  margin-bottom: 2px;
-}
-
-.preset {
-  text-align: left;
-  font-size: var(--fc-font-xs);
-  color: var(--fc-text-muted);
-  background: var(--fc-bg);
-  border: 1px solid var(--fc-border);
-  border-radius: 14px;
-  padding: 6px 12px;
-  cursor: pointer;
-  line-height: 1.6;
-}
-
-.preset:hover:not(:disabled) {
-  border-color: var(--fc-primary-border);
-  color: var(--fc-primary);
-  background: var(--fc-primary-bg-weak);
-}
-
-.preset:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+  color: var(--fc-text-faint);
+  padding: var(--fc-space-2) 18px 0;
+  margin: 0;
 }
 
 /* SKIPPED 提示。用中性色而不是红色：它不是错误，只是「这页没内容」 */

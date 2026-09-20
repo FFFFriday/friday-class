@@ -175,6 +175,18 @@ DROP PROCEDURE IF EXISTS `fc_add_index`;
 ALTER TABLE `qa_record`
   MODIFY COLUMN `page_id` BIGINT UNSIGNED NULL COMMENT '所属页，NULL=课后提问（不在任何页上）';
 
+-- ⚠ 4.2 `session_id` **同样必须可空** —— 初版遗漏，2026-09-21 补。
+--
+-- 「课后提问」既不在任何课堂上、也不在任何页上。
+-- 只把 page_id 改成可空是**不够的**：session_id 仍是 NOT NULL 时，
+-- 课后提问会在落库这一步直接 500。
+-- 实测症状：`DataIntegrityViolationException: Column 'session_id' cannot be null`，
+-- 接口返回「服务器内部错误」，而前端只会看到一个笼统的 500 —— 极难反查到是列约束问题。
+--
+-- MODIFY 本身幂等，重复执行无副作用。
+ALTER TABLE `qa_record`
+  MODIFY COLUMN `session_id` BIGINT UNSIGNED NULL COMMENT '所属课堂，NULL=课后提问（不挂在任何课堂下）';
+
 
 -- =============================================================
 -- 五、验证输出

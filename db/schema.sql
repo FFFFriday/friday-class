@@ -127,7 +127,9 @@ CREATE TABLE `class_session` (
 -- 7. 问答记录表（补充课堂关联）
 CREATE TABLE `qa_record` (
   `id`         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '问答记录唯一标识，主键',
-  `session_id` BIGINT UNSIGNED NOT NULL                COMMENT '所属课堂ID，外键',
+  -- ⚠ session_id 与 page_id **都必须可空**：学生课后问 AI 时既不在课堂上、也不在任何页上。
+  -- 只放开 page_id 会让课后提问在落库这一步就失败（Column 'session_id' cannot be null）。
+  `session_id` BIGINT UNSIGNED NULL                    COMMENT '所属课堂ID，外键；NULL=课后提问（不挂在任何课堂下）',
   `student_id` BIGINT UNSIGNED NOT NULL                COMMENT '提问学生用户ID，外键',
   -- ⚠ 必须可空：学生**下课后**问 AI 时不在任何一页上，没有 page_id 可填。
   -- 保持 NOT NULL 会让课后问答直接落库失败，而「课后也能用 AI」是明确需求。

@@ -138,6 +138,20 @@ async function loadLive() {
   }
 }
 
+/**
+ * 「问 AI」入口：带着这份课件 + 当前页打开 AI 助手页。
+ *
+ * 带上 pageId 而不是只带 coursewareId 是有意义的——AI 会**就这一页的知识点**回答，
+ * 而不是泛泛而谈。这正是「按页码定位上下文」的价值所在。
+ */
+const aiEntry = computed(() => ({
+  name: 'ai',
+  query: {
+    coursewareId: String(currentCoursewareId()),
+    ...(currentPage.value ? { pageId: String(currentPage.value.id) } : {}),
+  },
+}))
+
 /** 教师开课：建课堂后直接进控制台。 */
 async function startClass() {
   starting.value = true
@@ -202,6 +216,9 @@ watch(() => route.params.id, load, { immediate: true })
         >
           {{ starting ? '开课中…' : '开始上课' }}
         </button>
+
+        <!-- 问 AI：教师与学生都能用。教师拿它备课答疑，学生拿它课后追问。 -->
+        <router-link v-if="detail" class="btn ask" :to="aiEntry">问 AI</router-link>
       </div>
     </header>
 
@@ -310,33 +327,40 @@ watch(() => route.params.id, load, { immediate: true })
           <p v-else class="text muted">（本页没有可抽取的文字）</p>
 
           <!--
-            这一页 AI 到底读出了什么。老师需要它来验收解析质量：
-            知识点跑偏（比如把页脚当成知识点）时，只有在这里才看得出来。
-            学生端**不显示**知识点——那是 AI 助手的回答素材，直接摊开就没必要问了。
+            这一页 AI 到底读出了什么。
+
+            ⚠️ 这里原来是 `v-if="auth.isTeacher"`，理由是「知识点是 AI 助手的回答素材，
+            学生直接摊开就没必要问了」。**该判断已被推翻**（2026-09-21）：
+            学生看不到解析内容本身就是需求里点名要修的问题之一。
+            现在两端都能看——老师用它验收解析质量（知识点跑偏只有在这里看得出来），
+            学生用它预习和自查。
+
+            两端的**接入方式不同**：老师在这里看完就算，
+            学生下面的「问 AI」入口会把课件与页码带进 AI 助手页，接着就能追问。
           -->
-          <template v-if="auth.isTeacher">
-            <div v-if="currentKnowledge.length || currentPresets.length" class="kp">
-              <div v-if="currentKnowledge.length" class="kp-block">
-                <p class="kp-title">AI 提炼的知识点</p>
-                <ul class="kp-list">
-                  <li v-for="(k, i) in currentKnowledge" :key="i">{{ k }}</li>
-                </ul>
-              </div>
-              <div v-if="currentPresets.length" class="kp-block">
-                <p class="kp-title">AI 预置的提问</p>
-                <ul class="kp-list">
-                  <li v-for="(q, i) in currentPresets" :key="i">{{ q }}</li>
-                </ul>
-              </div>
+          <div v-if="currentKnowledge.length || currentPresets.length" class="kp">
+            <div v-if="currentKnowledge.length" class="kp-block">
+              <p class="kp-title">AI 提炼的知识点</p>
+              <ul class="kp-list">
+                <li v-for="(k, i) in currentKnowledge" :key="i">{{ k }}</li>
+              </ul>
             </div>
-            <p v-else-if="parseRunning" class="kp-empty">本页正在解析中…</p>
-            <p v-else-if="parseEverParsed" class="kp-empty">
-              本页没有解析出内容。封面页、目录页、纯图片页会这样，属正常情况。
-            </p>
-            <p v-else class="kp-empty">
-              这份课件还没有 AI 解析，点上面的按钮跑一次，就能看到每页的知识点。
-            </p>
-          </template>
+            <div v-if="currentPresets.length" class="kp-block">
+              <p class="kp-title">AI 预置的提问</p>
+              <ul class="kp-list">
+                <li v-for="(q, i) in currentPresets" :key="i">{{ q }}</li>
+              </ul>
+            </div>
+          </div>
+          <p v-else-if="parseRunning" class="kp-empty">本页正在解析中…</p>
+          <p v-else-if="parseEverParsed" class="kp-empty">
+            本页没有解析出内容。封面页、目录页、纯图片页会这样，属正常情况。
+          </p>
+          <!-- 未解析时的提示要分角色：学生点不了「开始 AI 解析」，不能让他去点一个不存在的按钮 -->
+          <p v-else-if="auth.isTeacher" class="kp-empty">
+            这份课件还没有 AI 解析，点上面的按钮跑一次，就能看到每页的知识点。
+          </p>
+          <p v-else class="kp-empty">老师还没有对这份课件做 AI 解析，暂时看不到知识点。</p>
         </template>
         <p v-else class="hint">暂无页面</p>
       </section>
@@ -403,6 +427,17 @@ watch(() => route.params.id, load, { immediate: true })
   background: #fff;
   color: #c0392b;
   border-color: #f3ddd4;
+}
+
+/* 问 AI：描边主色，与实心的「开始上课」区分开，不抢主操作 */
+.btn.ask {
+  background: #fff;
+  color: #d97757;
+  border-color: #f0c8b8;
+}
+
+.btn.ask:hover {
+  background: #fff3e6;
 }
 
 .dot {

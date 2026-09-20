@@ -58,6 +58,13 @@ watch(() => route.fullPath, () => {
           <router-link class="nav-link" :class="{ active: isActive('/courseware') }" to="/courseware">
             课程中心
           </router-link>
+          <!--
+            AI 助手：教师和学生都能进。
+            它是长期会话（可跨课、可课后使用），与课堂里那个「就当前页提问」的面板不是一回事。
+          -->
+          <router-link class="nav-link" :class="{ active: isActive('/ai') }" to="/ai">
+            AI 助手
+          </router-link>
           <!-- 教师专属。学生看不到入口；就算手敲 /upload 也会被路由守卫和
                后端 @PreAuthorize 两道拦下。 -->
           <router-link v-if="auth.isTeacher" class="nav-link" :class="{ active: isActive('/upload') }" to="/upload">

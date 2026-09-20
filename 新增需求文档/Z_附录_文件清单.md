@@ -96,8 +96,8 @@
 
 | 文件 | 动作 | 说明 |
 |---|---|---|
-| `src/pages/AiChatPage.vue` | **新增** | 主聊天界面 |
-| `src/pages/AiConversationsPage.vue` | **新增** | 会话列表 |
+| `src/pages/AiChatPage.vue` | **新增** | 主聊天界面（`/ai` 与 `/ai/:conversationId` **同一个组件**） |
+| ~~`src/pages/AiConversationsPage.vue`~~ | **未建** | 计划里的「会话列表页」已**并入 AiChatPage 的左侧栏**——拆成两页会让同一套侧栏写两遍，且从列表进会话会整页重挂载、丢滚动位置。`/ai`（没选会话那一屏）与 `/ai/:id` 都指向 AiChatPage |
 | `src/components/features/ConversationList.vue` | **新增** | 会话侧栏 |
 | `src/components/features/MessageBubble.vue` | **新增** | 消息气泡（**纯文本插值**） |
 | `src/components/features/PageKnowledgePanel.vue` | **新增** | 当前页知识点 + 预置提问 |

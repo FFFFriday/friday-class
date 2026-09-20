@@ -34,8 +34,15 @@ public class QaRecord {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    /**
+     * 所属课堂。
+     *
+     * <p><b>必须可空</b>——与 {@link #page} 同理：学生<b>下课后</b>问 AI 时
+     * 既不在课堂上、也不在任何页上。这两列要一起放开，
+     * 只放开 page_id 会让课后提问在落库这一步直接失败。
+     */
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "session_id", nullable = false)
+    @JoinColumn(name = "session_id")
     private ClassSession session;
 
     @ManyToOne(fetch = FetchType.LAZY)

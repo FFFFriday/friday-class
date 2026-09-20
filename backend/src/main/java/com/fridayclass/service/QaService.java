@@ -3,6 +3,7 @@ package com.fridayclass.service;
 import com.fridayclass.common.BusinessException;
 import com.fridayclass.dto.QaAskRequest;
 import com.fridayclass.dto.QaRecordResponse;
+import com.fridayclass.entity.AiConversation;
 import com.fridayclass.entity.ClassSession;
 import com.fridayclass.entity.Courseware;
 import com.fridayclass.entity.CoursewarePage;
@@ -24,26 +25,27 @@ import com.fridayclass.repository.QaRecordRepository;
 import com.fridayclass.repository.UserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeUnit;
 
 /**
- * F004 学生问答智能体：按当前页的知识点回答学生的问题。
+ * F004 学生问答智能体：按当前页的知识点回答学生的问题，并带上会话上下文。
  *
  * <h3>核心机制</h3>
  * 老师翻页 → 学生端切到该页上下文 → 提问时带 {@code pageId} → 后端<b>只取该页</b>知识点组提示词。
- * 上下文小、响应快、成本低，而且回答天然贴合老师正在讲的内容。
+ * 上下文小、响应快，而且回答天然贴合老师正在讲的内容。
  *
  * <h3>事务边界</h3>
  * 与解析服务同一条规矩：<b>模型调用在事务外</b>。一次调用要 1~8 秒，
@@ -55,6 +57,19 @@ import java.util.concurrent.TimeUnit;
  * 「本页暂无解析内容」，会在课件还在解析时<b>误导学生</b>以为课件有问题。
  * 前三种<b>不调模型</b>（省一次冤枉钱），返回 {@code SKIPPED} 且<b>不落库</b>——
  * 落库会把「没问成」记成「问过了」，污染 F006 统计。
+ *
+ * <h3>⚠️ 「省钱两件套」已删除（2026-09-21）</h3>
+ * 原先有两处优化：<b>答案复用缓存</b>（10 分钟内相同问题复用答案）与
+ * <b>并发合流</b>（同一问题多人同时问只调一次模型）。两者都已移除，原因有二：
+ * <ol>
+ *   <li>按 Friday 指示<b>不省钱</b>；</li>
+ *   <li>更要紧的是<b>它们会导致上下文串台</b>：缓存的键是
+ *       「课堂|页|问题文字」，<b>根本不认识「会话」是什么</b>。
+ *       A 会话问「什么是 TCP」得到答案 X（按 A 的上下文生成），
+ *       10 分钟内 B 会话问同一句就会拿到 X —— B 看到的是别人上下文里的答案。</li>
+ * </ol>
+ * <b>保留</b>的是 {@code clientRequestId} + {@code uk_qa_client_req} 唯一索引的幂等：
+ * 它不省模型钱，是防「手抖双击重复扣费」，无害且必要。
  */
 @Service
 public class QaService {
@@ -65,18 +80,10 @@ public class QaService {
     private static final String MSG_PARSE_FAILED = "本页内容解析失败，请告诉老师";
     private static final String MSG_NO_CONTENT = "本页暂无解析内容，可先听老师讲解";
     private static final String MSG_LLM_FAILED = "AI 助教暂时忙不过来，请稍后再试";
+    private static final String MSG_TOO_LONG = "本会话太长了，建议新建一个会话继续";
 
     /** 每学生 1 问 / 5 秒（设计文档 §3.7）。防的是「一个班同时点发送」的瞬时并发。 */
     private static final long MIN_ASK_INTERVAL_MS = 5_000L;
-
-    /** 相同问题的答案缓存时长（设计文档 §3.8）。课堂上「同一个问题多人问」极常见。 */
-    private static final Duration DEDUP_TTL = Duration.ofMinutes(10);
-
-    /** 缓存条目上限。超过就整体清空——课堂上条目本来就少，粗略但绝不会无界增长。 */
-    private static final int MAX_CACHE_ENTRIES = 2_000;
-
-    /** 跟跑者等待领跑者的上限，取问答总预算，保证不会超出学生能接受的等待时间。 */
-    private static final long FOLLOW_WAIT_SECONDS = 20L;
 
     private final ClassSessionRepository sessionRepository;
     private final CoursewarePageRepository pageRepository;
@@ -84,8 +91,17 @@ public class QaService {
     private final PresetQuestionRepository presetQuestionRepository;
     private final QaRecordRepository qaRecordRepository;
     private final UserRepository userRepository;
+    private final AiConversationService conversationService;
     private final DeepSeekClient llmClient;
     private final TransactionTemplate transactionTemplate;
+
+    /**
+     * 带进提示词的历史轮数（一条问答记录 = 一轮）。
+     *
+     * <p>这是<b>兜底</b>而不是优化：防止会话无限增长把模型上下文撑爆。
+     * 按 Friday 指示不演示长对话，所以取一个保守值即可。
+     */
+    private final int contextTurns;
 
     /**
      * 每学生上次提问时刻（毫秒）。
@@ -96,33 +112,26 @@ public class QaService {
      */
     private final Map<Long, Long> lastAskAtMs = new ConcurrentHashMap<>();
 
-    /** 相同问题的答案缓存：key = 课堂|页|归一化问题。 */
-    private final Map<String, CachedAnswer> answerCache = new ConcurrentHashMap<>();
-
-    /**
-     * 正在进行中的相同提问。
-     *
-     * <p>这是 <b>single-flight</b>：同一个问题被 20 个学生同时问，只有第一个人真的调模型，
-     * 其余 19 个等他的结果。课堂上收益最大的一笔省钱（设计文档 §3.8）。
-     */
-    private final Map<String, CompletableFuture<String>> inFlight = new ConcurrentHashMap<>();
-
     public QaService(ClassSessionRepository sessionRepository,
                      CoursewarePageRepository pageRepository,
                      KnowledgePointRepository knowledgePointRepository,
                      PresetQuestionRepository presetQuestionRepository,
                      QaRecordRepository qaRecordRepository,
                      UserRepository userRepository,
+                     AiConversationService conversationService,
                      DeepSeekClient llmClient,
-                     PlatformTransactionManager transactionManager) {
+                     PlatformTransactionManager transactionManager,
+                     @Value("${app.ai.context-turns:6}") int contextTurns) {
         this.sessionRepository = sessionRepository;
         this.pageRepository = pageRepository;
         this.knowledgePointRepository = knowledgePointRepository;
         this.presetQuestionRepository = presetQuestionRepository;
         this.qaRecordRepository = qaRecordRepository;
         this.userRepository = userRepository;
+        this.conversationService = conversationService;
         this.llmClient = llmClient;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
+        this.contextTurns = Math.max(0, contextTurns);
     }
 
     /** 学生提问。 */
@@ -140,23 +149,23 @@ public class QaService {
 
         String question = PromptTemplates.normalizeQuestion(request.question());
 
-        // 3) 短事务：校验归属、判断该不该调模型
+        // 3) 短事务：解析会话、校验归属、判断该不该调模型、抓上下文
         Prepared prepared = transactionTemplate.execute(
-                status -> prepare(request.sessionId(), request.pageId(), question));
+                status -> prepare(studentId, request, question));
 
         if (prepared.skipped()) {
             // 归还刚才扣掉的限流额度：这一问**根本没调模型**（解析中 / 解析失败 / 本页无内容），
             // 没有理由花掉学生那 5 秒。不还的话会出现自相矛盾的提示：
             // 学生先被告知「课件还在解析中」，两秒后再点又变成「提问太快了」——明明是同一件事。
             refundRateLimit(studentId);
-            log.info("qa_skipped studentId={} sessionId={} pageId={} reason={}",
-                    studentId, request.sessionId(), request.pageId(), prepared.skipMessage());
+            log.info("qa_skipped studentId={} pageId={} reason={}",
+                    studentId, request.pageId(), prepared.skipMessage());
             return QaRecordResponse.skipped(request.pageId(), prepared.pageNo(),
                     request.question(), prepared.skipMessage());
         }
 
-        // 4) 事务外调模型（可能走缓存 / 与别人的相同提问合并）
-        AnswerOutcome outcome = answerWithDedup(request.sessionId(), request.pageId(), prepared);
+        // 4) 事务外调模型（带会话上下文）
+        AnswerOutcome outcome = answer(prepared);
 
         // 5) 短事务：落库并返回
         return persist(studentId, request, prepared, outcome);
@@ -177,118 +186,207 @@ public class QaService {
     }
 
     /**
-     * 短事务里把「能不能答、拿什么答」一次性准备好。
+     * 短事务里把「能不能答、用哪个会话、拿什么答、上文是什么」一次性准备好。
      *
      * <p>放在一个事务里是有意义的：判断该不该答要看课件状态，
-     * 而抓知识点是紧随其后的两步查询——分开做的话，
+     * 而抓知识点、解析会话是紧随其后的几步查询——分开做的话，
      * 中间可能正好赶上解析完成/失败，出现「状态说已解析、知识点却查不到」的错配。
-     */
-    private Prepared prepare(Long sessionId, Long pageId, String question) {
-        ClassSession session = sessionRepository.findDetailById(sessionId)
-                .orElseThrow(() -> new BusinessException(404, "课堂不存在"));
-
-        if (session.getStatus() == SessionStatus.ENDED) {
-            // 下课后 AI 拿着本页知识点答一道已经结束的课的问题，既没人看，
-            // 也会在课后总结里混进噪声
-            throw new BusinessException("课堂已结束，无法提问");
-        }
-
-        CoursewarePage page = pageRepository.findById(pageId)
-                .orElseThrow(() -> new BusinessException(400, "页码与当前课堂不匹配"));
-
-        Courseware courseware = session.getCourseware();
-        if (courseware == null || page.getCourseware() == null
-                || !courseware.getId().equals(page.getCourseware().getId())) {
-            // 学生端如果传了别的课件的 pageId，会拿到完全不相关的知识点来回答，
-            // 而且全程不报错——必须显式挡住
-            throw new BusinessException(400, "页码与当前课堂不匹配");
-        }
-
-        CoursewareStatus status = courseware.getStatus();
-        if (status == CoursewareStatus.UPLOADED
-                || status == CoursewareStatus.CONVERTING
-                || status == CoursewareStatus.PARSING) {
-            return Prepared.skip(MSG_PARSING, page.getPageNo());
-        }
-        if (status == CoursewareStatus.FAILED) {
-            return Prepared.skip(MSG_PARSE_FAILED, page.getPageNo());
-        }
-
-        List<KnowledgePoint> points = knowledgePointRepository.findByPageIdOrderBySortOrderAsc(pageId);
-        List<PresetQuestion> questions = presetQuestionRepository.findByPageIdOrderBySortOrderAsc(pageId);
-
-        if (points.isEmpty() && questions.isEmpty()) {
-            return Prepared.skip(MSG_NO_CONTENT, page.getPageNo());
-        }
-
-        return Prepared.ready(page.getId(), page.getPageNo(),
-                PromptTemplates.numbered(points.stream().map(KnowledgePoint::getContent).toList()),
-                PromptTemplates.numbered(questions.stream().map(PresetQuestion::getContent).toList()),
-                question);
-    }
-
-    /**
-     * 调模型，带「相同问题去重缓存 + single-flight」。
      *
-     * <p>自己失败和等人失败都<b>不抛异常</b>，而是返回 FAILED 结果——
-     * 模型失败在设计里不是 HTTP 错误，而是「成功响应里带 status=FAILED」。
+     * <p><b>顺序是有讲究的</b>：先做「要不要跳过」的判定，<b>再</b>解析会话。
+     * 反过来的话，一次被跳过的提问也会顺手建出一个空会话，
+     * 学生会看到列表里冒出一个自己没聊过的会话。
      */
-    private AnswerOutcome answerWithDedup(Long sessionId, Long pageId, Prepared prepared) {
-        String key = sessionId + "|" + pageId + "|" + prepared.question();
+    private Prepared prepare(Long studentId, QaAskRequest request, String question) {
+        ClassSession session = null;
+        Courseware courseware = null;
+        CoursewarePage page = null;
 
-        CachedAnswer cached = answerCache.get(key);
-        if (cached != null && !cached.expired()) {
-            log.debug("qa_cache_hit key={}", key);
-            return AnswerOutcome.of(cached.answer());
+        // ① 课堂（可空 = 课后提问）
+        if (request.sessionId() != null) {
+            session = sessionRepository.findDetailById(request.sessionId())
+                    .orElseThrow(() -> new BusinessException(404, "课堂不存在"));
+            if (session.getStatus() == SessionStatus.ENDED) {
+                // 提前给一句死信：AI 拿着本页知识点答一道已经结束的课的问题，
+                // 既没人看，也会在课后总结里混进噪声。
+                // 课后想继续问，请走「AI 助手」页（那里不带 sessionId）。
+                throw new BusinessException("课堂已结束。课后继续提问请到「AI 助手」页");
+            }
+            courseware = session.getCourseware();
         }
 
-        // single-flight：抢到的人负责调模型，抢不到的人等结果
-        CompletableFuture<String> mine = new CompletableFuture<>();
-        CompletableFuture<String> leader = inFlight.putIfAbsent(key, mine);
+        // ② 页（可空 = 课后提问）
+        if (request.pageId() != null) {
+            page = pageRepository.findById(request.pageId())
+                    .orElseThrow(() -> new BusinessException(400, "页码与当前课堂不匹配"));
 
-        if (leader != null) {
-            try {
-                // 必须带超时：领跑者万一卡住，跟跑者不能跟着无限等，
-                // 否则 Tomcat 线程会被一批相同提问全部占死
-                return AnswerOutcome.of(leader.get(FOLLOW_WAIT_SECONDS, TimeUnit.SECONDS));
-            } catch (Exception ex) {
-                log.warn("qa_follow_failed key={} reason={}", key, ex.toString());
-                return AnswerOutcome.failed();
+            if (courseware != null && (page.getCourseware() == null
+                    || !courseware.getId().equals(page.getCourseware().getId()))) {
+                // 学生端如果传了别的课件的 pageId，会拿到完全不相关的知识点来回答，
+                // 而且全程不报错——必须显式挡住
+                throw new BusinessException(400, "页码与当前课堂不匹配");
+            }
+            if (courseware == null) {
+                // 只给了 pageId 没给 sessionId：从页反推课件，题目仍然有据可依
+                courseware = page.getCourseware();
             }
         }
 
-        try {
-            LlmResult result = llmClient.chat(CallKind.QA,
-                    PromptTemplates.qaSystemPrompt(),
-                    PromptTemplates.qaUserPrompt(prepared.knowledgePoints(),
-                            prepared.presetQuestions(), prepared.question()),
-                    false);
+        // ③ 该不该答（只有在「基于某一页」提问时才有意义）
+        String knowledgePoints = "";
+        String presetQuestions = "";
+        if (page != null) {
+            CoursewareStatus status = courseware == null ? null : courseware.getStatus();
+            if (status == CoursewareStatus.UPLOADED
+                    || status == CoursewareStatus.CONVERTING
+                    || status == CoursewareStatus.PARSING) {
+                return Prepared.skip(MSG_PARSING, page.getPageNo());
+            }
+            if (status == CoursewareStatus.FAILED) {
+                return Prepared.skip(MSG_PARSE_FAILED, page.getPageNo());
+            }
 
-            String answer = result.content().strip();
-            mine.complete(answer);
-            putCache(key, answer);
-            return AnswerOutcome.of(answer);
+            List<KnowledgePoint> points =
+                    knowledgePointRepository.findByPageIdOrderBySortOrderAsc(page.getId());
+            List<PresetQuestion> presets =
+                    presetQuestionRepository.findByPageIdOrderBySortOrderAsc(page.getId());
+
+            if (points.isEmpty() && presets.isEmpty()) {
+                return Prepared.skip(MSG_NO_CONTENT, page.getPageNo());
+            }
+
+            knowledgePoints = PromptTemplates.numbered(
+                    points.stream().map(KnowledgePoint::getContent).toList());
+            presetQuestions = PromptTemplates.numbered(
+                    presets.stream().map(PresetQuestion::getContent).toList());
+        }
+
+        // ④ 会话：先校验/取出，再组装上文
+        Long coursewareId = courseware == null ? null : courseware.getId();
+        Long sessionId = session == null ? null : session.getId();
+        AiConversation conversation = resolveConversation(
+                studentId, request.conversationId(), coursewareId, sessionId);
+
+        // ⑤ 上文（不含本次提问——它还没落库）
+        String history = buildHistory(conversation.getId());
+
+        return Prepared.ready(conversation.getId(), sessionId, coursewareId, page,
+                knowledgePoints, presetQuestions, history, question);
+    }
+
+    /**
+     * 取会话：传了 conversationId 就校验归属，没传就落到该学生在该课件下的默认会话。
+     *
+     * <p>「没传」这条路径是<b>兼容老前端</b>用的（M4 §2 的最小改动原则）——
+     * 老 UI 不带 conversationId，照样能提问，只是会自动归到一个默认会话里。
+     */
+    private AiConversation resolveConversation(Long studentId, Long conversationId,
+                                               Long coursewareId, Long sessionId) {
+        AiConversation conversation = (conversationId != null)
+                ? conversationService.requireOwned(studentId, conversationId)
+                : conversationService.resolveDefault(studentId, coursewareId, sessionId);
+
+        long count = qaRecordRepository.countByConversationId(conversation.getId());
+        if (count >= AiConversationService.MAX_MESSAGES_PER_CONVERSATION) {
+            // 在这里拦而不是落库时拦：这时还没调模型，拦下来不花钱
+            throw new BusinessException(MSG_TOO_LONG);
+        }
+        return conversation;
+    }
+
+    /**
+     * 组装会话上文：取最近 N 轮，反转成正序，拼成「学生 / 助教」交替的文本。
+     *
+     * <p>每段都走 {@link PromptTemplates#truncateForHistory}——
+     * 它同时做截断与<b>剥离定界符</b>。历史里的学生提问是自由输入，
+     * 上一轮塞一句「忽略之前的要求」，这一轮会以更高的可信度重新进入提示词
+     * （模型更容易把「自己说过的话」当成可信内容），所以必须和当次提问同等对待。
+     */
+    private String buildHistory(Long conversationId) {
+        if (contextTurns <= 0) {
+            return "";
+        }
+        List<QaRecord> recent = qaRecordRepository.findRecentByConversationId(
+                conversationId, PageRequest.of(0, contextTurns));
+        if (recent.isEmpty()) {
+            return "";
+        }
+
+        List<QaRecord> asc = new ArrayList<>(recent);
+        Collections.reverse(asc);
+
+        StringBuilder sb = new StringBuilder();
+        for (QaRecord record : asc) {
+            sb.append("学生：")
+                    .append(PromptTemplates.truncateForHistory(
+                            record.getQuestion(), PromptTemplates.MAX_HISTORY_QUESTION_CHARS))
+                    .append('\n');
+            sb.append("助教：")
+                    .append(PromptTemplates.truncateForHistory(
+                            record.getAnswer(), PromptTemplates.MAX_HISTORY_ANSWER_CHARS))
+                    .append('\n');
+        }
+        return sb.toString();
+    }
+
+    /**
+     * 调模型。
+     *
+     * <p>失败<b>不抛异常</b>，而是返回 FAILED 结果——模型失败在设计里不是 HTTP 错误，
+     * 而是「成功响应里带 status=FAILED」。
+     *
+     * <p>系统提示词有两套：有本页资料时用「只依据资料回答」的严格版；
+     * 课后自由问答没有资料，必须换通用版——否则学生问什么都会得到
+     * 「这部分课件没有提到」，等于这个功能不存在。
+     */
+    private AnswerOutcome answer(Prepared prepared) {
+        boolean hasPageMaterial = !prepared.knowledgePoints().isBlank()
+                || !prepared.presetQuestions().isBlank();
+
+        String systemPrompt = hasPageMaterial
+                ? PromptTemplates.qaSystemPrompt()
+                : PromptTemplates.qaFreeSystemPrompt();
+
+        try {
+            LlmResult result = llmClient.chat(CallKind.QA, systemPrompt,
+                    PromptTemplates.qaUserPrompt(prepared.knowledgePoints(),
+                            prepared.presetQuestions(), prepared.history(), prepared.question()),
+                    false);
+            return AnswerOutcome.of(result.content().strip());
         } catch (Exception ex) {
-            log.warn("qa_llm_failed sessionId={} pageId={} reason={}",
-                    sessionId, pageId, ex.toString());
-            mine.completeExceptionally(ex);
+            log.warn("qa_llm_failed conversationId={} reason={}",
+                    prepared.conversationId(), ex.toString());
             return AnswerOutcome.failed();
-        } finally {
-            // 不论成败都要移除，否则这个 key 永远卡在「有人在问」，后续提问全走超时分支
-            inFlight.remove(key);
         }
     }
 
-    /** 落库并组装响应。写入失败若是幂等键冲突，说明另一个并发请求已经写好了，直接把它的结果读回来。 */
+    /**
+     * 落库并组装响应。
+     *
+     * <p><b>响应必须在事务内组装</b>：{@code QaRecordResponse.from} 要读 {@code page.pageNo}，
+     * 而 page 是 {@code getReferenceById} 拿到的懒代理；事务一关再读就抛
+     * {@code LazyInitializationException}。（讨论区那边踩过同一个坑，
+     * 症状是「消息进了库但全班收不到广播」。）
+     */
     private QaRecordResponse persist(Long studentId, QaAskRequest request,
                                      Prepared prepared, AnswerOutcome outcome) {
         try {
             return transactionTemplate.execute(status -> {
+                // 轮次要在 insert **之前**数：本条就是第 (现有条数 + 1) 轮
+                long existing = qaRecordRepository.countByConversationId(prepared.conversationId());
+                int turn = (int) existing + 1;
+
                 QaRecord record = new QaRecord();
-                // 用 getReferenceById 拿代理即可，插外键不必先把关联对象查出来
-                record.setSession(sessionRepository.getReferenceById(request.sessionId()));
+                // 课后提问没有课堂、没有页——这两个关联都可空了（见 01_数据库建模 §3.2）
+                if (prepared.sessionId() != null) {
+                    record.setSession(sessionRepository.getReferenceById(prepared.sessionId()));
+                } else {
+                    record.setSession(null);
+                }
                 record.setStudent(userRepository.getReferenceById(studentId));
-                record.setPage(pageRepository.getReferenceById(request.pageId()));
+                record.setPage(prepared.pageId() == null
+                        ? null : pageRepository.getReferenceById(prepared.pageId()));
+                record.setConversationId(prepared.conversationId());
+                record.setCoursewareId(prepared.coursewareId());
                 record.setQuestion(request.question().strip());
                 record.setAnswer(outcome.text());
                 record.setStatus(outcome.status());
@@ -297,15 +395,14 @@ public class QaService {
 
                 QaRecord saved = qaRecordRepository.save(record);
 
-                log.info("qa_answered studentId={} sessionId={} pageId={} status={} answerChars={}",
-                        studentId, request.sessionId(), request.pageId(), outcome.status(),
-                        outcome.text().length());
+                // 刷新会话活跃时间。列表按它倒序，不刷新的话刚聊过的会话会被挤下去。
+                conversationService.touch(prepared.conversationId());
 
-                // 直接用 prepared 里的 pageNo 组装，不再去读 saved.getPage()——
-                // 那是个代理，读它又要多一次 SELECT
-                return new QaRecordResponse(saved.getId(), prepared.pageId(), prepared.pageNo(),
-                        saved.getQuestion(), saved.getAnswer(),
-                        outcome.status().name(), saved.getAskedAt());
+                log.info("qa_answered studentId={} conversationId={} turn={} sessionId={} pageId={} status={} answerChars={}",
+                        studentId, prepared.conversationId(), turn, prepared.sessionId(),
+                        prepared.pageId(), outcome.status(), outcome.text().length());
+
+                return QaRecordResponse.from(saved, turn);
             });
         } catch (DataIntegrityViolationException ex) {
             // 撞上 uk_qa_client_req：另一个并发请求已经用同一个幂等键写进去了
@@ -362,15 +459,6 @@ public class QaService {
         lastAskAtMs.remove(studentId);
     }
 
-    private void putCache(String key, String answer) {
-        if (answerCache.size() >= MAX_CACHE_ENTRIES) {
-            // 粗略的兜底：课堂上同时有效的条目本来就少，整体清空比维护 LRU 划算得多
-            answerCache.clear();
-            log.debug("qa_cache_cleared");
-        }
-        answerCache.put(key, new CachedAnswer(answer, System.nanoTime() + DEDUP_TTL.toNanos()));
-    }
-
     private static String blankToNull(String value) {
         if (value == null) {
             return null;
@@ -384,28 +472,27 @@ public class QaService {
         return LocalDateTime.now().withNano(0);
     }
 
-    /** 缓存条目。用 nanoTime 而不是 currentTimeMillis：后者会被系统时间调整影响。 */
-    private record CachedAnswer(String answer, long expiresAtNanos) {
-        boolean expired() {
-            return System.nanoTime() > expiresAtNanos;
-        }
-    }
-
     /** prepare 的结果：要么「该跳过，给这句提示」，要么「可以答，材料在这」。 */
-    private record Prepared(String skipMessage, Long pageId, Integer pageNo,
-                            String knowledgePoints, String presetQuestions, String question) {
+    private record Prepared(String skipMessage, Long conversationId, Long sessionId, Long coursewareId,
+                            Long pageId, Integer pageNo, String knowledgePoints,
+                            String presetQuestions, String history, String question) {
 
         boolean skipped() {
             return skipMessage != null;
         }
 
         static Prepared skip(String message, Integer pageNo) {
-            return new Prepared(message, null, pageNo, null, null, null);
+            return new Prepared(message, null, null, null, null, pageNo, null, null, null, null);
         }
 
-        static Prepared ready(Long pageId, Integer pageNo, String knowledgePoints,
-                              String presetQuestions, String question) {
-            return new Prepared(null, pageId, pageNo, knowledgePoints, presetQuestions, question);
+        static Prepared ready(Long conversationId, Long sessionId, Long coursewareId,
+                              CoursewarePage page, String knowledgePoints, String presetQuestions,
+                              String history, String question) {
+            return new Prepared(null, conversationId, sessionId, coursewareId,
+                    page == null ? null : page.getId(), page == null ? null : page.getPageNo(),
+                    knowledgePoints == null ? "" : knowledgePoints,
+                    presetQuestions == null ? "" : presetQuestions,
+                    history == null ? "" : history, question);
         }
     }
 

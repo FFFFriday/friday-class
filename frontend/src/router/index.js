@@ -37,6 +37,23 @@ const routes = [
     meta: { requiresAuth: true, teacherOnly: true },
   },
   {
+    // AI 助手：学生的长期会话（可跨课、可课后使用）。
+    // /ai 是「还没选会话」的那一屏，/ai/:conversationId 是具体会话。
+    // 两个路由指向同一个组件：拆成两个页面会让会话侧栏写两遍，
+    // 而且从列表进会话会整页重挂载、丢滚动位置。
+    // 不加角色限制——教师也可以有自己的 AI 会话（备课答疑）。
+    path: '/ai',
+    name: 'ai',
+    component: () => import('@/pages/AiChatPage.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/ai/:conversationId',
+    name: 'ai-chat',
+    component: () => import('@/pages/AiChatPage.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
     // 纯净演示页：老师**共享出去的就是这个标签页**。
     // layout: false 是关键——不带任何导航栏与外壳，学生看到的只有幻灯片本身。
     // teacherOnly 只是前端体验；真正的边界在后端

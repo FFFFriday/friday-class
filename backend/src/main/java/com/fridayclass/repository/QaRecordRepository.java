@@ -1,10 +1,12 @@
 package com.fridayclass.repository;
 
 import com.fridayclass.entity.QaRecord;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -49,4 +51,49 @@ public interface QaRecordRepository extends JpaRepository<QaRecord, Long> {
      * 不重复调模型、不重复入库。
      */
     Optional<QaRecord> findByClientRequestId(String clientRequestId);
+
+    // ── AI 会话（M4） ──────────────────────────────────────────
+
+    /**
+     * 某会话的全部问答，正序。会话详情页用。
+     *
+     * <p>不带 {@code join fetch r.page}：会话详情不显示页码，
+     * 而 {@code page} 对课后提问恒为 null；为了一个用不到的字段去做外连接不划算。
+     * 需要页码时用 {@link #findBySessionWithPage}。
+     */
+    @Query("""
+            select r from QaRecord r
+            where r.conversationId = :conversationId
+            order by r.id asc
+            """)
+    List<QaRecord> findByConversationId(@Param("conversationId") Long conversationId);
+
+    /**
+     * 某会话**最近** N 条，倒序取出。
+     *
+     * <p>倒序取是有意的：要的是「最近几轮」，正序取前 N 条拿到的是会话最早那几轮，
+     * 上下文就对不上了。取完由调用方反转成正序再拼进提示词。
+     */
+    @Query("""
+            select r from QaRecord r
+            where r.conversationId = :conversationId
+            order by r.id desc
+            """)
+    List<QaRecord> findRecentByConversationId(@Param("conversationId") Long conversationId,
+                                              Pageable pageable);
+
+    /** 某会话的问答条数。一条问答记录 = 一轮对话。 */
+    long countByConversationId(Long conversationId);
+
+    /**
+     * 批量统计多个会话的条数，供会话列表一次性取回。
+     * 不这么做的话列表里每个会话都要单独 count 一次（N+1）。
+     */
+    @Query("""
+            select new com.fridayclass.repository.ConversationCount(r.conversationId, count(r))
+            from QaRecord r
+            where r.conversationId in :ids
+            group by r.conversationId
+            """)
+    List<ConversationCount> countByConversationIds(@Param("ids") Collection<Long> ids);
 }
