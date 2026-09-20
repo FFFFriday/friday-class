@@ -39,6 +39,11 @@ public class SessionRegistry {
 
     /** 登记一个已通过认证的连接。 */
     public void add(Long sessionId, Long userId, WebSocketSession session) {
+        if (sessionId == null || userId == null) {
+            // ConcurrentHashMap 不接受 null 键，传进来会直接 NPE。
+            // 调用方已有更早的判空，这里是最后一道闸。
+            return;
+        }
         bySession.computeIfAbsent(sessionId, key -> new ConcurrentHashMap<>())
                 .computeIfAbsent(userId, key -> ConcurrentHashMap.newKeySet())
                 .add(session);

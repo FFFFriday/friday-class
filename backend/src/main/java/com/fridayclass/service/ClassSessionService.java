@@ -3,6 +3,7 @@ package com.fridayclass.service;
 import com.fridayclass.common.BusinessException;
 import com.fridayclass.dto.SessionCreateRequest;
 import com.fridayclass.dto.SessionResponse;
+import com.fridayclass.dto.StreamStateResponse;
 import com.fridayclass.entity.ClassSession;
 import com.fridayclass.entity.Courseware;
 import com.fridayclass.entity.User;
@@ -11,7 +12,9 @@ import com.fridayclass.enums.SessionStatus;
 import com.fridayclass.repository.ClassSessionRepository;
 import com.fridayclass.repository.CoursewareRepository;
 import com.fridayclass.repository.UserRepository;
+import com.fridayclass.ws.ClassBroadcaster;
 import com.fridayclass.ws.PageBroadcaster;
+import com.fridayclass.ws.StreamStateRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -49,17 +52,23 @@ public class ClassSessionService {
     private final CoursewareRepository coursewareRepository;
     private final UserRepository userRepository;
     private final PageBroadcaster pageBroadcaster;
+    private final ClassBroadcaster classBroadcaster;
+    private final StreamStateRegistry streamStateRegistry;
     private final TransactionTemplate transactionTemplate;
 
     public ClassSessionService(ClassSessionRepository sessionRepository,
                                CoursewareRepository coursewareRepository,
                                UserRepository userRepository,
                                PageBroadcaster pageBroadcaster,
+                               ClassBroadcaster classBroadcaster,
+                               StreamStateRegistry streamStateRegistry,
                                PlatformTransactionManager transactionManager) {
         this.sessionRepository = sessionRepository;
         this.coursewareRepository = coursewareRepository;
         this.userRepository = userRepository;
         this.pageBroadcaster = pageBroadcaster;
+        this.classBroadcaster = classBroadcaster;
+        this.streamStateRegistry = streamStateRegistry;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
     }
 
@@ -154,8 +163,73 @@ public class ClassSessionService {
         SessionResponse result = transactionTemplate.execute(
                 status -> endInTransaction(sessionId, teacherId));
 
+        // 下课了就不该还挂着「有共享流」的标记：学生重新进课堂会看到
+        // 「老师正在共享」的提示，然后永远等不到画面。
+        // 放在广播之前，保证 stream.stopped 与 ended 的先后语义一致。
+        if (streamStateRegistry.stop(sessionId)) {
+            classBroadcaster.streamStopped(sessionId);
+        }
+
         pageBroadcaster.broadcastEnded(sessionId);
         return result;
+    }
+
+    // ── 屏幕共享状态（M1） ─────────────────────────────────────
+
+    /**
+     * 查询当前是否有共享流。学生进入课堂时调用。
+     *
+     * <p>注意这只是**服务端登记的状态**，不等于「学生此刻真的收得到画面」——
+     * 媒体流是老师与学生点对点直连的，服务端不经手。
+     */
+    @Transactional(readOnly = true)
+    public StreamStateResponse streamState(Long sessionId) {
+        ClassSession session = requireSession(sessionId);
+        if (!streamStateRegistry.isLive(sessionId)) {
+            return StreamStateResponse.idle();
+        }
+        // teacherId 必须带上：学生回信令时要知道发给谁（见 StreamStateResponse 的说明）
+        Long teacherId = session.getTeacher() == null ? null : session.getTeacher().getId();
+        return StreamStateResponse.of(true, streamStateRegistry.startedAt(sessionId), teacherId);
+    }
+
+    /**
+     * 开始 / 停止共享登记（教师专属，且只能操作自己的课堂）。
+     *
+     * <p>成功后广播 {@code stream.started} / {@code stream.stopped}，
+     * 学生端据此显示或收起「老师正在共享屏幕」的提示。
+     *
+     * <p><b>服务端管不到画面本身</b>：真正的编码与传输在老师的浏览器里，
+     * 这里只是登记 + 广播。老师如果把浏览器标签页直接关了，
+     * 登记不会自动清除，得等他重新进控制台或课堂结束。
+     * 这是 P2P 架构的固有边界，不是缺陷。
+     */
+    public StreamStateResponse setStreamState(Long sessionId, Long teacherId, boolean live) {
+        ClassSession session = transactionTemplate.execute(status -> {
+            ClassSession found = requireSession(sessionId);
+            User teacher = found.getTeacher();
+            if (teacher == null || !teacher.getId().equals(teacherId)) {
+                throw new BusinessException(403, "这不是你的课堂");
+            }
+            if (live && found.getStatus() == SessionStatus.ENDED) {
+                throw new BusinessException("课堂已结束，无法共享屏幕");
+            }
+            return found;
+        });
+
+        if (live) {
+            LocalDateTime startedAt = streamStateRegistry.start(sessionId);
+            classBroadcaster.streamStarted(sessionId, teacherId);
+            log.info("stream_started sessionId={} teacherId={}", sessionId, teacherId);
+            return StreamStateResponse.of(true, startedAt, teacherId);
+        }
+
+        boolean wasLive = streamStateRegistry.stop(sessionId);
+        if (wasLive) {
+            classBroadcaster.streamStopped(sessionId);
+        }
+        log.info("stream_stopped sessionId={} teacherId={} wasLive={}", sessionId, teacherId, wasLive);
+        return StreamStateResponse.idle();
     }
 
     private SessionResponse endInTransaction(Long sessionId, Long teacherId) {

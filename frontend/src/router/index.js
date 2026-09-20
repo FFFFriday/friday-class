@@ -36,6 +36,16 @@ const routes = [
     component: () => import('@/pages/TeacherLivePage.vue'),
     meta: { requiresAuth: true, teacherOnly: true },
   },
+  {
+    // 纯净演示页：老师**共享出去的就是这个标签页**。
+    // layout: false 是关键——不带任何导航栏与外壳，学生看到的只有幻灯片本身。
+    // teacherOnly 只是前端体验；真正的边界在后端
+    // （POST /api/session/*/page 在 SecurityConfig 与 @PreAuthorize 上都限了 TEACHER）。
+    path: '/present/:sessionId',
+    name: 'present',
+    component: () => import('@/pages/TeachPresentPage.vue'),
+    meta: { requiresAuth: true, teacherOnly: true, layout: false },
+  },
   { path: '/profile', name: 'profile', component: () => import('@/pages/ProfilePage.vue'), meta: { requiresAuth: true } },
 ]
 

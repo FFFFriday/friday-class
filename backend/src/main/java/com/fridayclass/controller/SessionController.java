@@ -5,7 +5,10 @@ import com.fridayclass.dto.ListResult;
 import com.fridayclass.dto.PageChangeRequest;
 import com.fridayclass.dto.SessionCreateRequest;
 import com.fridayclass.dto.SessionResponse;
+import com.fridayclass.dto.StreamStateRequest;
+import com.fridayclass.dto.StreamStateResponse;
 import com.fridayclass.security.UserPrincipal;
+import com.fridayclass.service.ClassPresenceService;
 import com.fridayclass.service.ClassSessionService;
 import jakarta.validation.Valid;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -29,9 +32,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class SessionController {
 
     private final ClassSessionService classSessionService;
+    private final ClassPresenceService classPresenceService;
 
-    public SessionController(ClassSessionService classSessionService) {
+    public SessionController(ClassSessionService classSessionService,
+                             ClassPresenceService classPresenceService) {
         this.classSessionService = classSessionService;
+        this.classPresenceService = classPresenceService;
     }
 
     /**
@@ -102,5 +108,43 @@ public class SessionController {
                                                    @AuthenticationPrincipal UserPrincipal principal) {
         return ApiResponse.ok(
                 classSessionService.updateCurrentPage(id, principal.getId(), request.pageNo()));
+    }
+
+    /**
+     * 查询当前是否有屏幕共享流（学生进入课堂时调）。
+     *
+     * <p>只读、需登录，不加角色限制——学生必须能查。
+     */
+    @GetMapping("/{id}/stream")
+    public ApiResponse<StreamStateResponse> streamState(@PathVariable Long id) {
+        return ApiResponse.ok(classSessionService.streamState(id));
+    }
+
+    /**
+     * 当前在线名单。
+     *
+     * <p>数据源是内存里的连接登记表，不是数据库（理由见 {@code ClassPresenceService}）。
+     * 老师刷新页面后靠它一次拿回完整名单——只靠 presence 事件累积的话，
+     * 老师一刷新名单就空了，而学生其实都还在。
+     */
+    @GetMapping("/{id}/online")
+    public ApiResponse<ListResult<ClassPresenceService.OnlineUser>> online(@PathVariable Long id) {
+        return ApiResponse.ok(ListResult.of(classPresenceService.onlineUsers(id)));
+    }
+
+    /**
+     * 开始 / 停止屏幕共享登记（教师专属，且只能操作自己的课堂）。
+     *
+     * <p>这里管的是**状态登记与广播**，不是媒体本身——画面是老师与学生
+     * 点对点直连的，服务端不经手。信令走 WebSocket（{@code webrtc.*}）。
+     */
+    @PostMapping("/{id}/stream")
+    @PreAuthorize("hasRole('TEACHER')")
+    public ApiResponse<StreamStateResponse> setStreamState(
+            @PathVariable Long id,
+            @Valid @RequestBody StreamStateRequest request,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        return ApiResponse.ok(
+                classSessionService.setStreamState(id, principal.getId(), request.live()));
     }
 }

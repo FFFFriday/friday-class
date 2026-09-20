@@ -1357,6 +1357,95 @@ Deadlock found when trying to get lock;
 
 ---
 
+### 6.12 新增需求 P1：讨论区 / 在线名单 / 屏幕共享（2026-09-21）
+
+> 来源：`新增需求文档/` 的 M1（实时课堂传输）、M2（课堂讨论区）。
+> 本节是这三个模块的**接口权威定义**。
+
+#### 新增 REST 接口
+
+| 方法 | 路径 | 鉴权 | 说明 |
+|---|---|---|---|
+| GET | `/api/chat/{sessionId}/messages` | 需登录 | 拉发言历史。`afterId` 增量 / `beforeId` 往前翻 / 都不传取最近 N 条 |
+| DELETE | `/api/chat/messages/{id}` | **本课堂教师 或 管理员** | 软删除（撤回） |
+| GET | `/api/session/{id}/stream` | 需登录 | 当前有无共享流。返回 `{live, startedAt, teacherId}` |
+| POST | `/api/session/{id}/stream` | **仅教师** | body `{live:true/false}`。登记 + 广播 |
+| GET | `/api/session/{id}/online` | 需登录 | 实时在线名单 `{list:[{userId,nickname,role}]}` |
+
+**`stream` 响应必须带 `teacherId`**：学生回 answer / ICE 时要知道发给谁，
+课堂里可能有多个老师（本项目支持多教师开课）。少了它协商根本建不起来。
+
+**`beforeId` 用游标而不是 offset 分页**：讨论区会不断有新消息插进来，
+offset 分页在有人发言时会错位重复。
+
+#### WebSocket 协议 v2
+
+上行（客户端 → 服务端）新增：
+
+| type | 载荷 |
+|---|---|
+| `chat.send` | `{content, clientMsgId, pageId}` |
+| `webrtc.offer` | `{toUserId, sdp}` |
+| `webrtc.answer` | `{toUserId, sdp}` |
+| `webrtc.ice` | `{toUserId, candidate}` |
+| `webrtc.ready` | `{}` |
+
+下行（服务端 → 客户端）新增：
+`chat.new` / `chat.deleted` / `presence.join` / `presence.leave` /
+`stream.started` / `stream.stopped` / `webrtc.offer` / `webrtc.answer` / `webrtc.ice` / `webrtc.ready`
+
+`auth_ok` 的 `online` 字段**语义已变**：从「连接数」改为「在线**人数**（按用户去重）」，
+另附 `connections` 供排查连接泄漏时对照。前端目前不读这两个字段。
+
+#### ⚠️ 实测踩到并修掉的两个坑（写在这里免得重犯）
+
+1. **`webrtc.offer` 是双向的，计划书初版漏了上行那一半。**
+   协商由老师发起，所以它既是服务端 → 学生的事件、也是老师 → 服务端的上行消息。
+   漏掉的表现极具迷惑性：老师点「开始共享」一切正常（接口 200、状态已登记、
+   学生也收到 `stream.started`），**但学生端永远黑屏**——offer 在服务端被当成
+   未知消息类型丢掉了。
+
+2. **事务外读懒加载代理会抛 `LazyInitializationException`，而它排在广播之前。**
+   `ChatMessageResponse.from()` 要读 `user.nickname`，而 user 是
+   `getReferenceById` 拿到的代理；事务一关再读就抛异常。
+   症状是「**消息成功进了库（历史里查得到），但全班都收不到广播**」。
+   修法：**响应在事务内组装**。凡是「落库 + 广播」的路径都要注意这一点。
+
+#### 限流与去重
+
+| 项 | 取值 | 说明 |
+|---|---|---|
+| 发言限流 | 每人 **1 条 / 2 秒** | 进程内，重启清零、多实例各算一份 |
+| `clientMsgId` 去重 | **60 秒**窗口 | 命中则**静默吞掉**，不回 error（回 error 前端会以为发失败） |
+| 单条长度 | ≤ 1000 字符 | 按**码点**截断，避免把 emoji 劈成半个 |
+| AI 提问限流 | 每人 1 问 / 5 秒 | 见 §6.8，未变 |
+
+**去重与限流的先后**：先查去重、再查限流。
+学生连点「发送」不该被判成「发太快了」——那次重复本来就该被幂等地吃掉。
+
+#### XSS
+
+内容**原样存储、不做 HTML 转义**（转义是渲染层的事）。
+前端**必须**用 `{{ }}` 文本插值，**严禁 `v-html`**。
+已实测：发 `<script>alert(1)</script>` → 原样透传、原样显示为文字。
+
+#### 屏幕共享的边界（不是缺陷，是 P2P 架构的固有限制）
+
+- 媒体流是老师与学生**点对点直连**的，**服务端不经手画面**。
+  `stream` 接口登记的只是「老师说他在共享」这个事实，不落库（进程内）。
+- `getDisplayMedia` **只在安全上下文可用**：localhost 可以，局域网 IP 不行。
+- 音频只有**老师的麦克风**，不含 PPT 内嵌声音。
+- 服务端**无法强制停掉画面**；管理端的「暂停课堂」只能改状态 + 广播 + 让老师端配合。
+- 学生数不宜多：老师要为**每个学生**独立编码一份，演示场景控制在 2 人。
+
+#### 已实测通过（43 项，脚本见验证记录）
+
+认证与在线名单 / 讨论区收发 / `clientMsgId` 去重 / 限流 / XSS 原样透传 /
+历史拉取 / 撤回与广播 / 信令定向转发（含「只达目标、旁人不收」）/ 共享状态 /
+离开广播 / **多标签页关一个不算离开**。
+
+---
+
 ## 七、快速自测
 
 按顺序跑一遍，能验证整条主链是否通：

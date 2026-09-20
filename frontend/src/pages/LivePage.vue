@@ -1,14 +1,27 @@
 <script setup>
-// 学生端课堂页：左边是「与老师同步的幻灯片」，右边是 AI 问答。
+// 学生端课堂页：左边是老师的实时画面，右边是「讨论区 / AI 问答」标签页。
 //
-// 翻页同步走 WebSocket（见 composables/usePageSync）：
-// HTTP 是「客户端问、服务端答」，服务端没有嘴，没法主动告诉学生「老师翻页了」。
-// 所以需要一条服务端能主动往下推的长连接。
-import { computed, onUnmounted, ref, watch } from 'vue'
+// 【为什么右侧改成标签页】
+// 原来是「幻灯片 + AI 面板」两块。新增讨论区之后，如果三块都堆在右栏，
+// 中间的视频区会被压得很小。所以右栏改成标签切换，一次只占一块。
+//
+// 【为什么有「进入课堂」这道门】
+// 带声音的 <video> 自动播放会被浏览器拦截，必须先有一次用户手势。
+// 这不是体验优化，是硬性前提——没有它，学生看到的是黑屏。
+//
+// 【实时通道只有一条】
+// 翻页、讨论区、在线名单、屏幕共享信令全部跑在同一条 WebSocket 上
+// （见 composables/useClassSocket）。这里创建一次，传给其它 composable。
+
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import http from '@/api/http'
-import { usePageSync } from '@/composables/usePageSync'
+import { useClassSocket } from '@/composables/useClassSocket'
+import { useClassChat } from '@/composables/useClassChat'
+import { useScreenViewer } from '@/composables/useScreenViewer'
 import { usePromptPack } from '@/composables/usePromptPack'
+import ClassChatPanel from '@/components/features/ClassChatPanel.vue'
+import { FcButton } from '@/components/base'
 
 const route = useRoute()
 
@@ -16,6 +29,7 @@ const session = ref(null)
 const pages = ref([])
 const records = ref([])
 const question = ref('')
+const activeTab = ref('chat')
 
 // 三个错误分开存：一次提问失败不该把直播画面和问答列表一起清掉
 const loadError = ref('')
@@ -38,7 +52,7 @@ const recordsError = ref('')
  *
  * 为什么是倒计时而不只是一句红字：429 不是「出错了」，是「等几秒就好」。
  * 只弹红字的话学生不知道要等多久，会反复点、反复收到同一句话；
- * 把剩余时间写在按钮上，他看一眼就知道该等。
+ * 把剩余时间写在按钮上，他一眼就知道该等。
  */
 const cooldownLeft = ref(0)
 let cooldownUntil = 0
@@ -71,8 +85,6 @@ function stopCooldown() {
   cooldownLeft.value = 0
 }
 
-onUnmounted(stopCooldown)
-
 /**
  * 「本页暂无解析内容」这类临时提示。
  *
@@ -81,6 +93,74 @@ onUnmounted(stopCooldown)
  * 所以单独存一份，只当提示显示。
  */
 const skippedNotice = ref('')
+
+// ── 实时通道 ───────────────────────────────────────────────
+
+const socket = useClassSocket(route.params.sessionId)
+
+/** 翻页广播。WS 断线期间用接口里的 currentPage 兜底。 */
+const broadcastPage = ref(null)
+
+const offPage = socket.on('page', (msg) => {
+  broadcastPage.value = msg.pageNo
+  askError.value = ''
+})
+
+/** 被踢出课堂：提示并断开，别再让学生对着一个连不上的页面发愣。 */
+const kickedReason = ref('')
+const offKicked = socket.on('kicked', (msg) => {
+  kickedReason.value = msg.reason || '你已被移出本课堂'
+  socket.close()
+})
+
+const { connected, lastError, ended: broadcastEnded, paused, selfId, selfRole } = socket
+
+// ── 讨论区 ────────────────────────────────────────────────
+
+const {
+  messages,
+  loading: chatLoading,
+  loadingMore: chatLoadingMore,
+  hasMore: chatHasMore,
+  loadError: chatLoadError,
+  sendError: chatSendError,
+  cooldownLeft: chatCooldown,
+  load: loadChat,
+  loadOlder,
+  send: sendChat,
+  remove: removeChat,
+} = useClassChat(socket, route.params.sessionId)
+
+// ── 屏幕观看 ──────────────────────────────────────────────
+
+const {
+  entered,
+  stream: remoteStream,
+  state: viewerState,
+  error: viewerError,
+  playBlocked,
+  liveButNotEntered,
+  hasVideo,
+  enter,
+  refresh: refreshStream,
+  attach,
+  playNow,
+} = useScreenViewer(socket, route.params.sessionId)
+
+const videoEl = ref(null)
+
+// <video> 只在「已进入」分支里渲染，所以要用 watch 而不是 onMounted——
+// 元素可能在 setup 之后才出现
+watch(videoEl, (el) => {
+  if (el) attach(el)
+})
+
+onMounted(() => {
+  refreshStream()
+  loadChat()
+})
+
+// ── 知识点包与页码推导 ────────────────────────────────────
 
 /** 这份直播用的课件 ID。课堂加载完才有值。 */
 const coursewareId = computed(() => session.value?.coursewareId ?? null)
@@ -96,25 +176,13 @@ const { pagePack, load: loadPack } = usePromptPack(() => coursewareId.value, {
   watchParsing: true,
 })
 
-const {
-  currentPage: broadcastPage,
-  connected,
-  lastError,
-  ended: broadcastEnded,
-} = usePageSync(
-  route.params.sessionId,
-  () => {
-    askError.value = ''
-  },
-)
-
 /** 广播优先；还没收到广播时用接口里的 currentPage 兜底；都没有则是第 1 页。 */
 const currentPage = computed(() => broadcastPage.value ?? session.value?.currentPage ?? 1)
 
 /** 已结束 = 接口查出来是 ENDED，或刚收到下课广播。 */
 const ended = computed(() => broadcastEnded.value || session.value?.status === 'ENDED')
 
-/** 整页 PPT 图片（后端渲染的真课件画面）。课堂还没加载出来时是 null。 */
+/** 整页 PPT 图片（老师没共享屏幕时的降级画面）。 */
 const slideImageUrl = computed(() =>
   coursewareId.value ? `/slides/${coursewareId.value}/page${currentPage.value}.png` : null,
 )
@@ -159,7 +227,8 @@ const canAsk = computed(
     cooldownLeft.value === 0 &&
     // 课都下课了就别再让学生提问了：AI 拿着本页知识点答一道已经结束的课的问题，
     // 既没人看，也会在课后总结里混进噪声
-    !ended.value,
+    !ended.value &&
+    !paused.value,
 )
 
 /**
@@ -205,7 +274,6 @@ async function load() {
       records.value = recordList.list || []
     } catch (e) {
       // 读历史失败只给提示，**不禁用提问**：读不到旧记录，不代表发不出新问题。
-      // （以前这里会把整个问答区标成不可用，一次网络抖动就让学生整节课问不了。）
       recordsError.value = e.message || '问答记录暂时读不到'
     }
   } catch (e) {
@@ -269,6 +337,23 @@ async function ask() {
   }
 }
 
+/** 画面区域的说明文字。学生需要知道「现在到底在发生什么」。 */
+const stageHint = computed(() => {
+  if (kickedReason.value) return ''
+  if (ended.value) return '本节课已结束，画面停在老师下课的那一刻。'
+  if (!entered.value) return '点击「进入课堂」后即可看到老师的画面并听到声音。'
+  if (hasVideo.value) return '正在接收老师的屏幕画面与麦克风声音。'
+  if (liveButNotEntered.value) return '老师正在共享屏幕，正在建立连接…'
+  if (viewerState.value === 'stopped') return '老师已停止共享屏幕。下方显示的是与老师同步的课件画面。'
+  return '老师还没有开始共享屏幕，下方显示的是与老师同步的课件画面。'
+})
+
+onUnmounted(() => {
+  offPage()
+  offKicked()
+  stopCooldown()
+})
+
 watch(() => route.params.sessionId, load, { immediate: true })
 </script>
 
@@ -278,6 +363,7 @@ watch(() => route.params.sessionId, load, { immediate: true })
       <h1 class="title">{{ session?.title || '直播课堂' }}</h1>
       <div class="tags">
         <span v-if="session" class="tag page">第 {{ currentPage }} 页</span>
+        <span v-if="hasVideo" class="tag live-tag">直播中</span>
         <span v-if="ended" class="tag ended-tag">已结束</span>
         <span v-else class="tag" :class="connected ? 'on' : 'off'">
           {{ connected ? '实时同步中' : '重连中…' }}
@@ -291,83 +377,157 @@ watch(() => route.params.sessionId, load, { immediate: true })
     <div v-else class="body">
       <section class="stage">
         <!-- 下课了要明说，否则学生盯着最后一页不知道是自己卡了还是课上完了 -->
-        <p v-if="ended" class="ended-banner" role="status">
-          本节课已结束，感谢参与。
+        <p v-if="ended" class="ended-banner" role="status">本节课已结束，感谢参与。</p>
+        <p v-else-if="paused" class="paused-banner" role="status">
+          课堂已被管理员暂停，讨论与提问暂时不可用。
         </p>
+        <p v-if="kickedReason" class="ended-banner" role="alert">{{ kickedReason }}</p>
 
         <!--
-          学生看的是「和老师同步的那一页幻灯片」——现在是后端渲染好的整页 PPT 图片，
-          图片、配色、排版都和老师课件一致（以前这里是纯文字 HTML，所以看着不像 PPT）。
+          <video> 始终渲染（用 v-show 而不是 v-if），这样 ref 一定拿得到元素，
+          「有流了再绑」不用等组件重新挂载。
         -->
-        <img
-          v-if="slideImageUrl && !imageFailed"
-          class="slide"
-          :src="slideImageUrl"
-          :alt="`第 ${currentPage} 页`"
-          @error="imageFailed = true"
+        <video
+          v-show="hasVideo"
+          ref="videoEl"
+          class="stage__video"
+          autoplay
+          playsinline
         />
-        <!-- 图片渲染失败时退回纯文字版，至少不白屏 -->
-        <iframe
-          v-else-if="slideTextUrl"
-          class="slide"
-          :src="slideTextUrl"
-          :title="`第 ${currentPage} 页（文字版）`"
-        ></iframe>
+
+        <!-- 没有实时画面时，退回「与老师同步的课件图片」——这是答辩保险 -->
+        <template v-if="!hasVideo">
+          <img
+            v-if="slideImageUrl && !imageFailed"
+            class="slide"
+            :src="slideImageUrl"
+            :alt="`第 ${currentPage} 页`"
+            @error="imageFailed = true"
+          />
+          <iframe
+            v-else-if="slideTextUrl"
+            class="slide"
+            :src="slideTextUrl"
+            :title="`第 ${currentPage} 页（文字版）`"
+          ></iframe>
+        </template>
+
+        <!-- 自动播放被拦时的兜底：再点一下就出声 -->
+        <button v-if="playBlocked" class="play-fix" type="button" @click="playNow">
+          点击播放声音
+        </button>
+
+        <!--
+          手势门。盖在画面上，点了才进入。
+          这不只是「体验」——没有这次用户手势，带声音的播放一定会被浏览器拦掉。
+        -->
+        <div v-if="!entered && !ended" class="gate">
+          <p class="gate__title">准备进入课堂</p>
+          <p class="gate__desc">
+            <template v-if="liveButNotEntered">老师正在共享屏幕</template>
+            <template v-else>进入后可以看到老师的画面、听到声音，并参与课堂讨论</template>
+          </p>
+          <FcButton size="lg" @click="enter">进入课堂</FcButton>
+          <p class="gate__hint">浏览器要求先点一下，才允许播放声音</p>
+        </div>
 
         <p class="stage-hint">
-          <template v-if="ended">画面停在老师下课时的那一页。</template>
-          <template v-else>画面与老师翻页实时同步（视频直播是下一轮的事）。</template>
+          {{ stageHint }}
           <span v-if="lastError" class="warn">实时通道：{{ lastError }}</span>
+          <span v-if="viewerError" class="warn">{{ viewerError }}</span>
         </p>
       </section>
 
-      <aside class="qa">
-        <h2 class="qa-title">AI 问答助手</h2>
-
-        <div class="qa-list">
-          <div v-for="r in records" :key="r.id" class="qa-item">
-            <p class="q">
-              <span v-if="r.pageNo" class="q-page">第 {{ r.pageNo }} 页</span>
-              {{ r.question }}
-            </p>
-            <p class="a" :class="{ failed: r.status === 'FAILED' }">{{ r.answer }}</p>
-          </div>
-
-          <p v-if="recordsError" class="qa-off">{{ recordsError }}</p>
-          <p v-else-if="!records.length" class="qa-off">还没有问答，问点什么吧</p>
-        </div>
-
-        <!--
-          本页的预置思考题（AI 解析时生成）。点一下填进输入框，不直接发出去——
-          既省得学生自己组织语言，也顺手告诉他「这一页准备了哪几个方向」。
-        -->
-        <div v-if="currentPresets.length" class="presets">
-          <p class="presets-title">本页思考题</p>
+      <aside class="side">
+        <div class="side__tabs" role="tablist">
           <button
-            v-for="(q, i) in currentPresets"
-            :key="i"
-            class="preset"
-            :disabled="!canAsk"
-            @click="usePreset(q)"
+            class="side__tab"
+            :class="{ 'side__tab--on': activeTab === 'chat' }"
+            type="button"
+            role="tab"
+            :aria-selected="activeTab === 'chat'"
+            @click="activeTab = 'chat'"
           >
-            {{ q }}
+            讨论区
+          </button>
+          <button
+            class="side__tab"
+            :class="{ 'side__tab--on': activeTab === 'qa' }"
+            type="button"
+            role="tab"
+            :aria-selected="activeTab === 'qa'"
+            @click="activeTab = 'qa'"
+          >
+            AI 问答
           </button>
         </div>
 
-        <!-- SKIPPED 提示：没调模型、也没落库，所以只在这里显示，不进上面的列表 -->
-        <p v-if="skippedNotice" class="qa-notice">{{ skippedNotice }}</p>
-        <p v-if="askError" class="ask-error" role="alert">{{ askError }}</p>
-
-        <div class="qa-input">
-          <input
-            v-model="question"
-            :disabled="!canAsk"
-            :placeholder="canAsk ? `就第 ${currentPage} 页提问…` : '当前页不可提问'"
-            @keyup.enter="ask"
+        <div class="side__body">
+          <ClassChatPanel
+            v-if="activeTab === 'chat'"
+            :messages="messages"
+            :loading="chatLoading"
+            :loading-more="chatLoadingMore"
+            :has-more="chatHasMore"
+            :load-error="chatLoadError"
+            :send-error="chatSendError"
+            :cooldown-left="chatCooldown"
+            :self-id="selfId"
+            :ended="ended"
+            :paused="paused"
+            :can-delete="selfRole === 'TEACHER' || selfRole === 'ADMIN'"
+            @send="(text) => sendChat(text, currentPageId)"
+            @delete="removeChat"
+            @load-older="loadOlder"
           />
-          <button :disabled="!canAsk || !question.trim()" @click="ask">
-            {{ sending ? '回答中…' : cooldownLeft ? `${cooldownLeft} 秒后可问` : '发送' }}
-          </button>
+
+          <div v-else class="qa">
+            <div class="qa-list">
+              <div v-for="r in records" :key="r.id" class="qa-item">
+                <p class="q">
+                  <span v-if="r.pageNo" class="q-page">第 {{ r.pageNo }} 页</span>
+                  {{ r.question }}
+                </p>
+                <p class="a" :class="{ failed: r.status === 'FAILED' }">{{ r.answer }}</p>
+              </div>
+
+              <p v-if="recordsError" class="qa-off">{{ recordsError }}</p>
+              <p v-else-if="!records.length" class="qa-off">还没有问答，问点什么吧</p>
+            </div>
+
+            <!--
+              本页的预置思考题（AI 解析时生成）。点一下填进输入框，不直接发出去——
+              既省得学生自己组织语言，也顺手告诉他「这一页准备了哪几个方向」。
+            -->
+            <div v-if="currentPresets.length" class="presets">
+              <p class="presets-title">本页思考题</p>
+              <button
+                v-for="(q, i) in currentPresets"
+                :key="i"
+                class="preset"
+                :disabled="!canAsk"
+                @click="usePreset(q)"
+              >
+                {{ q }}
+              </button>
+            </div>
+
+            <!-- SKIPPED 提示：没调模型、也没落库，所以只在这里显示，不进上面的列表 -->
+            <p v-if="skippedNotice" class="qa-notice">{{ skippedNotice }}</p>
+            <p v-if="askError" class="ask-error" role="alert">{{ askError }}</p>
+
+            <div class="qa-input">
+              <input
+                v-model="question"
+                :disabled="!canAsk"
+                :placeholder="canAsk ? `就第 ${currentPage} 页提问…` : '当前页不可提问'"
+                @keyup.enter="ask"
+              />
+              <button :disabled="!canAsk || !question.trim()" @click="ask">
+                {{ sending ? '回答中…' : cooldownLeft ? `${cooldownLeft} 秒后可问` : '发送' }}
+              </button>
+            </div>
+          </div>
         </div>
       </aside>
     </div>
@@ -376,7 +536,7 @@ watch(() => route.params.sessionId, load, { immediate: true })
 
 <style scoped>
 .live {
-  max-width: 1120px;
+  max-width: 1200px;
   margin: 0 auto;
 }
 
@@ -389,8 +549,8 @@ watch(() => route.params.sessionId, load, { immediate: true })
 }
 
 .title {
-  font-size: 22px;
-  color: #333;
+  font-size: var(--fc-font-xl);
+  color: var(--fc-text);
 }
 
 .tags {
@@ -399,33 +559,45 @@ watch(() => route.params.sessionId, load, { immediate: true })
 }
 
 .tag {
-  font-size: 12px;
+  font-size: var(--fc-font-xs);
   padding: 4px 12px;
-  border-radius: 20px;
+  border-radius: var(--fc-radius-pill);
   white-space: nowrap;
 }
 
 .tag.page {
-  color: #d97757;
-  background: #fff3e6;
+  color: var(--fc-primary);
+  background: var(--fc-primary-bg);
 }
 
 .tag.on {
-  color: #27ae60;
-  background: #eafaf1;
+  color: var(--fc-success);
+  background: var(--fc-success-bg);
 }
 
 .tag.off {
-  color: #e67e22;
-  background: #fff7e6;
+  color: var(--fc-warning);
+  background: var(--fc-primary-bg-weak);
+}
+
+.tag.live-tag {
+  color: var(--fc-text-invert);
+  background: var(--fc-danger);
+}
+
+.ended-tag {
+  color: var(--fc-warning-text);
+  background: var(--fc-warning-bg);
 }
 
 .body {
   display: flex;
   gap: 18px;
+  align-items: flex-start;
 }
 
 .stage {
+  position: relative;
   flex: 1;
   min-width: 0;
   display: flex;
@@ -433,109 +605,203 @@ watch(() => route.params.sessionId, load, { immediate: true })
   gap: 10px;
 }
 
+/* 视频与图片共用 16:9 的外框，切换时不会跳高度 */
+.stage__video,
 .slide {
   width: 100%;
-  /* PPT 是 16:9。以前写死 480px 高度会把它压变形 */
   aspect-ratio: 16 / 9;
   object-fit: contain;
-  border: 1px solid #eee;
-  border-radius: 10px;
-  background: #fff;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius);
+  background: #111;
   display: block;
 }
 
-.ended-tag {
-  color: #8a6d3b;
-  background: #fcf8e3;
+.stage__video {
+  /* 老师的屏幕不一定是 16:9，视频按容器等比缩放、两边留黑 */
+  background: #000;
 }
 
-.ended-banner {
-  font-size: 13px;
-  color: #8a6d3b;
-  background: #fcf8e3;
-  border: 1px solid #faebcc;
+.slide {
+  background: var(--fc-bg-panel);
+}
+
+.ended-banner,
+.paused-banner {
+  font-size: var(--fc-font-sm);
+  color: var(--fc-warning-text);
+  background: var(--fc-warning-bg);
+  border: 1px solid var(--fc-warning-border);
   padding: 10px 14px;
-  border-radius: 8px;
+  border-radius: var(--fc-radius);
+}
+
+/* ── 手势门 ───────────────────────────────────────────────── */
+.gate {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--fc-space-3);
+  text-align: center;
+  padding: var(--fc-space-6);
+  border-radius: var(--fc-radius);
+  background: rgba(0, 0, 0, 0.72);
+}
+
+.gate__title {
+  font-size: var(--fc-font-xl);
+  font-weight: var(--fc-weight-semibold);
+  color: var(--fc-text-invert);
+  margin: 0;
+}
+
+.gate__desc {
+  font-size: var(--fc-font);
+  color: rgba(255, 255, 255, 0.78);
+  margin: 0;
+}
+
+.gate__hint {
+  font-size: var(--fc-font-xs);
+  color: rgba(255, 255, 255, 0.5);
+  margin: 0;
+}
+
+.play-fix {
+  position: absolute;
+  left: 50%;
+  bottom: 56px;
+  transform: translateX(-50%);
+  padding: 8px 20px;
+  border-radius: var(--fc-radius-pill);
+  background: var(--fc-primary);
+  color: var(--fc-text-invert);
+  font-size: var(--fc-font-sm);
+  box-shadow: var(--fc-shadow-lg);
 }
 
 .stage-hint {
-  font-size: 12px;
-  color: #999;
+  font-size: var(--fc-font-xs);
+  color: var(--fc-text-faint);
 }
 
 .warn {
-  color: #e67e22;
+  color: var(--fc-warning);
+  margin-left: var(--fc-space-2);
 }
 
-.qa {
-  width: 360px;
+/* ── 右栏 ─────────────────────────────────────────────────── */
+.side {
+  width: 380px;
   flex-shrink: 0;
-  background: #fff;
-  border: 1px solid #eee;
-  border-radius: 10px;
+  /*
+    必须有高度上限。不设的话，讨论区消息一多，整块面板会跟着长，
+    把页面撑得比幻灯片高出一大截——右栏一长，左边画面就显得孤零零的。
+    设了上限后，消息列表在面板内部自己滚。
+  */
+  max-height: 520px;
+  background: var(--fc-bg-panel);
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.side__tabs {
+  display: flex;
+  border-bottom: 1px solid var(--fc-border);
+}
+
+.side__tab {
+  flex: 1;
+  padding: 12px 8px;
+  font-size: var(--fc-font-sm);
+  color: var(--fc-text-muted);
+  border-bottom: 2px solid transparent;
+  transition: color var(--fc-transition), border-color var(--fc-transition);
+}
+
+.side__tab:hover {
+  color: var(--fc-primary);
+}
+
+.side__tab--on {
+  color: var(--fc-primary);
+  border-bottom-color: var(--fc-primary);
+  font-weight: var(--fc-weight-semibold);
+}
+
+.side__body {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }
 
-.qa-title {
-  font-size: 15px;
-  padding: 14px 18px;
-  border-bottom: 1px solid #eee;
-  color: #333;
+/* ── AI 问答面板（沿用原有结构） ───────────────────────────── */
+.qa {
+  display: flex;
+  flex-direction: column;
+  /* 撑满 .side__body，让 .qa-list 成为唯一会滚动的区域 */
+  flex: 1;
+  min-height: 0;
 }
 
 .qa-list {
   flex: 1;
+  min-height: 180px;
   padding: 16px 18px;
   overflow-y: auto;
-  max-height: 380px;
   display: flex;
   flex-direction: column;
   gap: 14px;
 }
 
 .q {
-  font-size: 13px;
-  color: #333;
+  font-size: var(--fc-font-sm);
+  color: var(--fc-text);
   margin-bottom: 5px;
 }
 
 .q-page {
   display: inline-block;
   font-size: 11px;
-  color: #d97757;
-  background: #fff3e6;
-  border-radius: 4px;
+  color: var(--fc-primary);
+  background: var(--fc-primary-bg);
+  border-radius: var(--fc-radius-sm);
   padding: 1px 6px;
   margin-right: 5px;
 }
 
 .a {
-  font-size: 13px;
-  color: #666;
-  background: #f7f7f8;
-  border-radius: 8px;
+  font-size: var(--fc-font-sm);
+  color: var(--fc-text-muted);
+  background: var(--fc-bg);
+  border-radius: var(--fc-radius);
   padding: 9px 12px;
   white-space: pre-wrap;
   word-break: break-word;
 }
 
 .a.failed {
-  color: #c0392b;
-  background: #fdf0ee;
+  color: var(--fc-danger-dark);
+  background: var(--fc-danger-bg);
 }
 
 .qa-off {
-  font-size: 13px;
-  color: #aaa;
+  font-size: var(--fc-font-sm);
+  color: var(--fc-text-faint);
   text-align: center;
   padding: 30px 0;
   line-height: 1.8;
 }
 
-/* ── 本页预置思考题 ──────────────────────────────────────────── */
 .presets {
-  border-top: 1px solid #eee;
+  border-top: 1px solid var(--fc-border);
   padding: 12px 18px 4px;
   display: flex;
   flex-direction: column;
@@ -543,17 +809,17 @@ watch(() => route.params.sessionId, load, { immediate: true })
 }
 
 .presets-title {
-  font-size: 12px;
-  color: #d97757;
+  font-size: var(--fc-font-xs);
+  color: var(--fc-primary);
   margin-bottom: 2px;
 }
 
 .preset {
   text-align: left;
-  font-size: 12px;
-  color: #666;
-  background: #fafafa;
-  border: 1px solid #eee;
+  font-size: var(--fc-font-xs);
+  color: var(--fc-text-muted);
+  background: var(--fc-bg);
+  border: 1px solid var(--fc-border);
   border-radius: 14px;
   padding: 6px 12px;
   cursor: pointer;
@@ -561,9 +827,9 @@ watch(() => route.params.sessionId, load, { immediate: true })
 }
 
 .preset:hover:not(:disabled) {
-  border-color: #f0c8b8;
-  color: #d97757;
-  background: #fff8f4;
+  border-color: var(--fc-primary-border);
+  color: var(--fc-primary);
+  background: var(--fc-primary-bg-weak);
 }
 
 .preset:disabled {
@@ -573,58 +839,58 @@ watch(() => route.params.sessionId, load, { immediate: true })
 
 /* SKIPPED 提示。用中性色而不是红色：它不是错误，只是「这页没内容」 */
 .qa-notice {
-  font-size: 13px;
-  color: #8a6d3b;
-  background: #fcf8e3;
+  font-size: var(--fc-font-sm);
+  color: var(--fc-warning-text);
+  background: var(--fc-warning-bg);
   padding: 9px 12px;
   margin: 8px 18px 0;
-  border-radius: 8px;
+  border-radius: var(--fc-radius);
   line-height: 1.7;
 }
 
 .ask-error {
-  font-size: 13px;
-  color: #c0392b;
-  background: #fdf0ee;
+  font-size: var(--fc-font-sm);
+  color: var(--fc-danger-dark);
+  background: var(--fc-danger-bg);
   padding: 9px 12px;
   margin: 0 18px;
-  border-radius: 8px;
+  border-radius: var(--fc-radius);
 }
 
 .qa-input {
   display: flex;
   gap: 8px;
   padding: 14px 18px;
-  border-top: 1px solid #eee;
+  border-top: 1px solid var(--fc-border);
 }
 
 .qa-input input {
   flex: 1;
   min-width: 0;
   padding: 10px 13px;
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  font-size: 14px;
+  border: 1px solid var(--fc-border-strong);
+  border-radius: var(--fc-radius);
+  font-size: var(--fc-font);
 }
 
 .qa-input input:focus {
   outline: none;
-  border-color: #d97757;
+  border-color: var(--fc-primary);
 }
 
 .qa-input input:disabled {
-  background: #f7f7f8;
+  background: var(--fc-bg);
   cursor: not-allowed;
 }
 
 .qa-input button {
   padding: 10px 18px;
   border: none;
-  border-radius: 8px;
-  background: #d97757;
-  color: #fff;
+  border-radius: var(--fc-radius);
+  background: var(--fc-primary);
+  color: var(--fc-text-invert);
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--fc-font);
   white-space: nowrap;
 }
 
@@ -635,20 +901,20 @@ watch(() => route.params.sessionId, load, { immediate: true })
 
 .hint {
   text-align: center;
-  color: #999;
+  color: var(--fc-text-faint);
   padding: 60px 0;
-  font-size: 14px;
+  font-size: var(--fc-font);
 }
 
 .error-text {
-  color: #e74c3c;
+  color: var(--fc-danger);
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1000px) {
   .body {
     flex-direction: column;
   }
-  .qa {
+  .side {
     width: 100%;
   }
 }

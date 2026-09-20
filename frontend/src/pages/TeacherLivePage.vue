@@ -2,8 +2,12 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import http from '@/api/http'
-import { usePageSync } from '@/composables/usePageSync'
 import { useAiParse } from '@/composables/useAiParse'
+import { useClassChat } from '@/composables/useClassChat'
+import { useClassSocket } from '@/composables/useClassSocket'
+import { useScreenShare } from '@/composables/useScreenShare'
+import ClassChatPanel from '@/components/features/ClassChatPanel.vue'
+import { FcTag } from '@/components/base'
 
 const route = useRoute()
 
@@ -37,17 +41,80 @@ const {
 
 const totalPages = computed(() => pages.value.length)
 
+/**
+ * 当前页对应的 pageId。
+ * 讨论区发言要带上它，课堂记录才能显示「这条是在第 N 页说的」。
+ * 找不到就返回 null——后端接受 pageId 为空，发言不会被它挡住。
+ */
+const currentPageId = computed(() => {
+  const found = pages.value.find((p) => p.pageNo === currentPage.value)
+  return found ? found.id : null
+})
+
 const statusText = computed(
   () => ({ NOT_STARTED: '未开始', LIVE: '直播中', ENDED: '已结束' })[session.value?.status] || '',
 )
 
 // 老师自己也订阅广播：这样「投影机 + 笔记本」两个窗口能自动同步页码。
 // 翻页本身走 POST，不靠 WebSocket——WS 一断老师就翻不了页，而 POST 只要网络通就行。
-const { connected, lastError, ended: broadcastEnded } = usePageSync(route.params.sessionId, (pageNo) => {
-  if (pageNo !== currentPage.value) {
-    currentPage.value = pageNo
+const socket = useClassSocket(route.params.sessionId)
+const { connected, lastError, ended: broadcastEnded, paused, selfId, selfRole } = socket
+
+const offPage = socket.on('page', (msg) => {
+  if (msg.pageNo !== currentPage.value) {
+    currentPage.value = msg.pageNo
   }
 })
+
+// ── 屏幕共享（M1） ─────────────────────────────────────────
+const {
+  sharing,
+  starting: shareStarting,
+  stopping: shareStopping,
+  error: shareError,
+  micWarning,
+  participants,
+  peerStates,
+  connectedCount,
+  start: startShare,
+  stop: stopShare,
+} = useScreenShare(socket, route.params.sessionId)
+
+/** 某个学生的连接状态文案。老师据此判断「他到底看没看到画面」。 */
+function peerStateLabel(userId) {
+  return (
+    {
+      new: '待协商',
+      connecting: '连接中',
+      connected: '已连接',
+      disconnected: '已断开',
+      failed: '连接失败',
+      closed: '已关闭',
+    }[peerStates.value[userId]] || '未连接'
+  )
+}
+
+function peerStateClass(userId) {
+  const state = peerStates.value[userId]
+  if (state === 'connected') return 'ok'
+  if (state === 'failed' || state === 'disconnected') return 'bad'
+  return 'pending'
+}
+
+// ── 讨论区（M2） ───────────────────────────────────────────
+const {
+  messages,
+  loading: chatLoading,
+  loadingMore: chatLoadingMore,
+  hasMore: chatHasMore,
+  loadError: chatLoadError,
+  sendError: chatSendError,
+  cooldownLeft: chatCooldown,
+  load: loadChat,
+  loadOlder,
+  send: sendChat,
+  remove: removeChat,
+} = useClassChat(socket, route.params.sessionId)
 
 /** 幻灯片图片加载失败时回退到纯文字 HTML 版（见模板里的 @error 分支）。 */
 const imageFailed = ref(false)
@@ -102,6 +169,9 @@ async function load() {
 
     // 拿到 coursewareId 才能查解析状态。不 await：它失败不该挡住直播控制台
     refreshParse()
+
+    // 讨论区历史同样不 await：拉不到也不该挡住翻页与共享
+    loadChat()
   } catch (e) {
     pageError.value = e.message || '加载失败'
     session.value = null
@@ -169,7 +239,10 @@ function onKeydown(event) {
 }
 
 onMounted(() => window.addEventListener('keydown', onKeydown))
-onUnmounted(() => window.removeEventListener('keydown', onKeydown))
+onUnmounted(() => {
+  window.removeEventListener('keydown', onKeydown)
+  offPage()
+})
 
 watch(() => route.params.sessionId, load, { immediate: true })
 </script>
@@ -215,6 +288,29 @@ watch(() => route.params.sessionId, load, { immediate: true })
           <option v-for="p in pages" :key="p.id" :value="p.pageNo">第 {{ p.pageNo }} 页</option>
         </select>
 
+        <!--
+          屏幕共享。老师共享的应该是**演示页那个标签页**（/present/:id），
+          不是这个控制台——否则学生连「上一页/下课」这些按钮一起看到。
+        -->
+        <button
+          v-if="!ended"
+          class="btn"
+          :class="{ 'btn-share-on': sharing }"
+          :disabled="shareStarting || shareStopping"
+          @click="sharing ? stopShare() : startShare()"
+        >
+          {{ shareStarting ? '启动中…' : shareStopping ? '停止中…' : sharing ? '停止共享屏幕' : '开始共享屏幕' }}
+        </button>
+        <a
+          v-if="!ended"
+          class="btn btn-link"
+          :href="`/present/${route.params.sessionId}`"
+          target="_blank"
+          rel="noopener"
+        >
+          打开演示页 ↗
+        </a>
+
         <!-- 下课。已经下课就不再显示，避免老师以为还能再结一次 -->
         <button v-if="!ended" class="btn btn-end" :disabled="ending" @click="endClass">
           {{ ending ? '正在下课…' : '下课' }}
@@ -225,7 +321,16 @@ watch(() => route.params.sessionId, load, { immediate: true })
     <!-- 提示放在 banner 里，不遮挡下面的幻灯片 -->
     <p v-if="pageError" class="msg msg-error" role="alert">{{ pageError }}</p>
     <p v-else-if="endError" class="msg msg-error" role="alert">{{ endError }}</p>
+    <p v-else-if="shareError" class="msg msg-error" role="alert">{{ shareError }}</p>
     <p v-else-if="lastError" class="msg msg-warn" role="status">{{ lastError }}</p>
+
+    <!-- 麦克风没拿到时明说：否则老师会以为「学生怎么听不见我说话」 -->
+    <p v-if="micWarning" class="msg msg-warn" role="status">{{ micWarning }}</p>
+
+    <p v-if="paused" class="msg msg-warn" role="status">
+      本课堂已被管理员暂停：学生端已收到遮罩，讨论与提问已禁用。
+      画面是点对点直连的，服务端无法强制切断——如需真正停画面，请自行点「停止共享屏幕」。
+    </p>
 
     <!--
       AI 解析出问题（或正在跑）时才摆到老师面前。
@@ -296,8 +401,65 @@ watch(() => route.params.sessionId, load, { immediate: true })
 
       <p class="hint">
         <template v-if="ended">键盘 ← → 与翻页按钮已停用。</template>
-        <template v-else>键盘 ← → 也能翻页。学生端会实时跟着切页，AI 回答也按当前页给。</template>
+        <template v-else>
+          键盘 ← → 也能翻页。学生端会实时跟着切页，AI 回答也按当前页给。
+          <template v-if="sharing">
+            共享中：学生画面来自你共享的那个标签页（建议共享「打开演示页」开出来的那个）。
+          </template>
+        </template>
       </p>
+
+      <!-- 在线名单 + 讨论区 -->
+      <div class="lower">
+        <section class="online">
+          <h2 class="lower__title">
+            在线
+            <span class="online__count">{{ participants.length }} 人</span>
+            <span v-if="sharing" class="online__stream">已连接 {{ connectedCount }}</span>
+          </h2>
+
+          <ul class="online__list">
+            <li v-for="p in participants" :key="p.userId" class="online__item">
+              <span class="online__name">{{ p.nickname || '匿名' }}</span>
+              <FcTag :type="p.role === 'TEACHER' ? 'primary' : 'default'" size="sm">
+                {{ p.role === 'TEACHER' ? '老师' : '学生' }}
+              </FcTag>
+              <!--
+                只有共享中才显示每个学生的连接状态：
+                没共享的时候所有人都是「未连接」，摆出来只会误导。
+              -->
+              <span
+                v-if="sharing && p.role === 'STUDENT'"
+                class="online__state"
+                :class="`online__state--${peerStateClass(p.userId)}`"
+              >
+                {{ peerStateLabel(p.userId) }}
+              </span>
+            </li>
+
+            <li v-if="!participants.length" class="online__empty">暂时没有其他人在线</li>
+          </ul>
+        </section>
+
+        <section class="chat-wrap">
+          <ClassChatPanel
+            :messages="messages"
+            :loading="chatLoading"
+            :loading-more="chatLoadingMore"
+            :has-more="chatHasMore"
+            :load-error="chatLoadError"
+            :send-error="chatSendError"
+            :cooldown-left="chatCooldown"
+            :self-id="selfId"
+            :ended="ended"
+            :paused="paused"
+            :can-delete="true"
+            @send="(text) => sendChat(text, currentPageId ?? null)"
+            @delete="removeChat"
+            @load-older="loadOlder"
+          />
+        </section>
+      </div>
     </template>
   </div>
 </template>
@@ -360,6 +522,135 @@ watch(() => route.params.sessionId, load, { immediate: true })
 .btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+/* 共享中：主色填充，让老师一眼看出「现在正在往外推画面」 */
+.btn-share-on {
+  background: var(--fc-primary);
+  border-color: var(--fc-primary);
+  color: var(--fc-text-invert);
+}
+.btn-share-on:hover:not(:disabled) {
+  background: var(--fc-primary-hover);
+  border-color: var(--fc-primary-hover);
+  color: var(--fc-text-invert);
+}
+
+/* 链接样式的按钮（打开演示页）。用 <a> 而不是 <button>：
+   它要能按住 Ctrl 新开标签页、能右键复制链接。 */
+.btn-link {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+  color: var(--fc-primary);
+  border-color: var(--fc-primary-border);
+}
+.btn-link:hover {
+  background: var(--fc-primary-bg);
+  color: var(--fc-primary-hover);
+}
+
+/* ── 在线名单 + 讨论区 ───────────────────────────────────── */
+.lower {
+  display: flex;
+  gap: 16px;
+  margin-top: 20px;
+  align-items: flex-start;
+}
+
+.online {
+  width: 260px;
+  flex-shrink: 0;
+  background: var(--fc-bg-panel);
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius);
+  padding: 14px 16px;
+}
+
+.lower__title {
+  font-size: var(--fc-font-sm);
+  font-weight: var(--fc-weight-semibold);
+  color: var(--fc-text);
+  display: flex;
+  align-items: center;
+  gap: var(--fc-space-2);
+  margin-bottom: 10px;
+}
+
+.online__count {
+  font-size: var(--fc-font-xs);
+  color: var(--fc-text-faint);
+  font-weight: 400;
+}
+
+.online__stream {
+  margin-left: auto;
+  font-size: var(--fc-font-xs);
+  color: var(--fc-success);
+  font-weight: 400;
+}
+
+.online__list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.online__item {
+  display: flex;
+  align-items: center;
+  gap: var(--fc-space-2);
+  font-size: var(--fc-font-sm);
+}
+
+.online__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fc-text);
+}
+
+.online__state {
+  font-size: var(--fc-font-xs);
+}
+.online__state--ok {
+  color: var(--fc-success);
+}
+.online__state--bad {
+  color: var(--fc-danger);
+}
+.online__state--pending {
+  color: var(--fc-text-faint);
+}
+
+.online__empty {
+  font-size: var(--fc-font-xs);
+  color: var(--fc-text-faint);
+}
+
+.chat-wrap {
+  flex: 1;
+  min-width: 0;
+  height: 420px;
+  background: var(--fc-bg-panel);
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius);
+  overflow: hidden;
+}
+
+@media (max-width: 900px) {
+  .lower {
+    flex-direction: column;
+  }
+  .online {
+    width: 100%;
+  }
+  .chat-wrap {
+    width: 100%;
+  }
 }
 
 /* 下课是破坏性操作：用描边红，与橙色主色区分开，避免和「下一页」看成一类 */

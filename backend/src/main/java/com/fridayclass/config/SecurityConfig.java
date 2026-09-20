@@ -89,6 +89,8 @@ public class SecurityConfig {
                         // 「我的课堂」列表（GET /api/session/mine）不在这里放行——
                         // 它默认就需要登录，且只返回 principal 自己的课，不需要角色限制。
                         .requestMatchers(HttpMethod.POST, "/api/session/*/end").hasRole("TEACHER")
+                        // 屏幕共享的开/关登记：仅教师。「是不是自己的课堂」由 Service 再校验一次。
+                        .requestMatchers(HttpMethod.POST, "/api/session/*/stream").hasRole("TEACHER")
                         // WebSocket 握手：浏览器原生 WebSocket **无法携带 Authorization 头**，
                         // 所以握手阶段只能放行。鉴权改由 PageWebSocketHandler 在「首帧」完成，
                         // 它同样会查库校验用户是否仍在、令牌版本是否被改密码作废，
