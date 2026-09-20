@@ -63,6 +63,16 @@ public class User {
     @Column(nullable = false)
     private Boolean deleted = false;
 
+    /**
+     * 禁用标记。<b>与 {@link #deleted} 是两个维度，不要混用。</b>
+     *
+     * <p>禁用是临时的：账号还在、数据都在、列表里照样看得到，只是登不进来。
+     * 软删除是移除：列表里不再出现。拿 deleted 兼职禁用的话，
+     * 一次「启用」会把删除也一并撤销。
+     */
+    @Column(nullable = false)
+    private Boolean disabled = false;
+
     /** 令牌版本：改密码时自增，使此前签发的 JWT 立即失效（无状态 JWT 的撤销手段）。 */
     @Column(name = "token_version", nullable = false)
     private Integer tokenVersion = 0;

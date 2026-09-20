@@ -87,6 +87,16 @@ public class FileStorageService {
         return relativeDir + "/" + filename;
     }
 
+    /**
+     * 存储根目录（绝对路径）。
+     *
+     * <p>给管理端的存储扫描用——它需要遍历整个根目录找孤立文件。
+     * 暴露的是只读的 Path（不可变），外部改不了它指向的位置。
+     */
+    public Path root() {
+        return root;
+    }
+
     /** 把相对路径解析成绝对路径，并确认没有越出根目录。 */
     public Path resolve(String relativePath) {
         Path target = root.resolve(relativePath).normalize();

@@ -76,6 +76,13 @@ public class AuthService {
             throw new BadCredentialsException("用户名或密码错误");
         }
 
+        // 被管理员禁用的账号不能登录。
+        // 密码校验**通过之后**才判禁用：顺序反过来的话，
+        // 输入任意密码都能得到「账号已被禁用」，等于确认了这个用户名存在。
+        if (Boolean.TRUE.equals(user.getDisabled())) {
+            throw new BusinessException(403, "该账号已被管理员禁用，请联系管理员");
+        }
+
         return new AuthResponse(jwtService.generateToken(user), UserResponse.from(user));
     }
 

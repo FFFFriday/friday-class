@@ -70,6 +70,11 @@ watch(() => route.fullPath, () => {
           <router-link v-if="auth.isTeacher" class="nav-link" :class="{ active: isActive('/upload') }" to="/upload">
             上传课件
           </router-link>
+          <!-- 管理端入口只对管理员显示。学生/教师就算手敲 /admin 也会被路由守卫弹回首页，
+               而真正的墙在后端（/api/admin/** → hasRole('ADMIN')，已实测 403）。 -->
+          <router-link v-if="auth.isAdmin" class="nav-link" :class="{ active: isActive('/admin') }" to="/admin">
+            管理端
+          </router-link>
         </nav>
 
         <div class="search">

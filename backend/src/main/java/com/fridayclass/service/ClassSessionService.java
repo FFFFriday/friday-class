@@ -174,6 +174,107 @@ public class ClassSessionService {
         return result;
     }
 
+    /**
+     * 强制下课（管理端）。与 {@link #end} 的区别：
+     * <ul>
+     *   <li>不校验「是不是你的课堂」——管理员本来就能结任何人的课；</li>
+     *   <li>记录 {@code endedBy} 与 {@code endReason=ADMIN_FORCE}，让「这课是谁结的」可追溯。</li>
+     * </ul>
+     */
+    public SessionResponse forceEnd(Long sessionId, Long adminId, String reason) {
+        SessionResponse result = transactionTemplate.execute(status -> {
+            ClassSession session = requireSession(sessionId);
+            if (session.getStatus() != SessionStatus.ENDED) {
+                session.setStatus(SessionStatus.ENDED);
+                session.setEndedAt(nowToSecond());
+                session.setEndedBy(adminId);
+                session.setEndReason(reason == null || reason.isBlank() ? "ADMIN_FORCE" : reason);
+                session = sessionRepository.save(session);
+                log.info("session_force_ended id={} by={}", sessionId, adminId);
+            }
+            return SessionResponse.from(session);
+        });
+
+        // 事务提交后再广播与清理（与 end 同一套顺序）
+        if (streamStateRegistry.stop(sessionId)) {
+            classBroadcaster.streamStopped(sessionId);
+        }
+        pageBroadcaster.broadcastEnded(sessionId);
+        return result;
+    }
+
+    /** 取课堂实体（管理端批量操作用）。 */
+    @Transactional(readOnly = true)
+    public ClassSession requireSessionEntity(Long sessionId) {
+        return requireSession(sessionId);
+    }
+
+    // ── 暂停 / 恢复（M6 管理端） ───────────────────────────────
+
+    /**
+     * 暂停课堂：置为 {@code PAUSED} + 广播 {@code class.paused}。
+     *
+     * <p><b>服务端切不断画面。</b>媒体流是老师与学生点对点直连的，
+     * 服务端手里的开关只有三个：改状态、广播事件、让学生端盖遮罩。
+     * 要真正停掉画面，得老师端收到通知后自己停止共享。
+     * 这是 P2P 架构的固有边界，不是缺陷——界面上必须写明，
+     * 否则「点了暂停画面还在」会被当成 bug 反复排查。
+     *
+     * <p>已结束的课堂不能暂停（它本来就没在跑）。
+     *
+     * @return 暂停后的课堂；本来就已经暂停时原样返回（幂等）
+     */
+    public SessionResponse pause(Long sessionId, Long operatorId) {
+        SessionResponse result = transactionTemplate.execute(
+                status -> changePausedInTransaction(sessionId, operatorId, true));
+
+        classBroadcaster.classPaused(sessionId, operatorId);
+        return result;
+    }
+
+    /** 恢复课堂：{@code PAUSED} → {@code LIVE}，清空 pausedAt，广播 {@code class.resumed}。 */
+    public SessionResponse resume(Long sessionId, Long operatorId) {
+        SessionResponse result = transactionTemplate.execute(
+                status -> changePausedInTransaction(sessionId, operatorId, false));
+
+        classBroadcaster.classResumed(sessionId, operatorId);
+        return result;
+    }
+
+    /**
+     * @param pause true = 暂停，false = 恢复
+     */
+    private SessionResponse changePausedInTransaction(Long sessionId, Long operatorId, boolean pause) {
+        ClassSession session = requireSession(sessionId);
+
+        if (session.getStatus() == SessionStatus.ENDED) {
+            throw new BusinessException("课堂已结束，无法" + (pause ? "暂停" : "恢复"));
+        }
+
+        if (pause) {
+            if (session.getStatus() != SessionStatus.PAUSED) {
+                // 连 NOT_STARTED 也一起置为 PAUSED：学生可能已经进了课堂（WS 连着），
+                // 状态保持 NOT_STARTED 的话前端拿不到「已暂停」这个信号
+                session.setStatus(SessionStatus.PAUSED);
+                session.setPausedAt(nowToSecond());
+                session = sessionRepository.save(session);
+            }
+            log.info("session_paused id={} by={}", sessionId, operatorId);
+            return SessionResponse.from(session);
+        }
+
+        if (session.getStatus() == SessionStatus.PAUSED) {
+            // 恢复成 LIVE 还是 NOT_STARTED 取决于有没有开过课：
+            // 从没翻过页的课堂恢复后不该突然显示「直播中」
+            session.setStatus(session.getStartedAt() == null
+                    ? SessionStatus.NOT_STARTED : SessionStatus.LIVE);
+            session.setPausedAt(null);
+            session = sessionRepository.save(session);
+        }
+        log.info("session_resumed id={} by={}", sessionId, operatorId);
+        return SessionResponse.from(session);
+    }
+
     // ── 屏幕共享状态（M1） ─────────────────────────────────────
 
     /**

@@ -36,6 +36,11 @@ CREATE TABLE `user` (
   `created_at`    DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `updated_at`    DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   `deleted`       TINYINT(1)      NOT NULL DEFAULT 0      COMMENT '软删除标记：0 正常 / 1 已删除',
+  -- 「禁用」与「软删除」是两个维度，不能混用：
+  --   禁用 = 临时禁止登录，账号还在、数据都在，随时可启用；
+  --   软删除 = 从系统里移除，列表里不再出现。
+  -- 用 deleted 兼职禁用的话，一次「启用」就会把删除也一起撤销。
+  `disabled`      TINYINT(1)      NOT NULL DEFAULT 0      COMMENT '禁用标记：1=禁止登录',
   `token_version` INT             NOT NULL DEFAULT 0      COMMENT '令牌版本：改密码时自增，使此前签发的 JWT 立即失效',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_user_username` (`username`)

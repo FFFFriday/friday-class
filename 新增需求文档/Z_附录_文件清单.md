@@ -145,7 +145,7 @@
 | `controller/admin/AdminAuditController.java` | **新增** | 审计日志 1 接口 |
 | `service/AdminUserService.java` | **新增** | |
 | `service/AdminSessionService.java` | **新增** | 强制下课 / 暂停 / 批量 / 踢人 |
-| `service/CoursewareDeleteService.java` | **新增** | **DB + 源文件 + 幻灯片 三处一起清** |
+| `service/AdminCoursewareService.java` | **新增** | 课件列表 + 删除（**DB + 源文件 + 幻灯片 三处一起清**）+ 重解析。原计划叫 `CoursewareDeleteService`，开工时扩成了「管理端课件操作」的统一归属——让一个叫 Delete 的类提供 `list()` 更别扭 |
 | `service/AdminAuditService.java` | **新增** | `record(...)` 统一收口 |
 | `service/StorageScanService.java` | **新增** | 占用统计、孤立文件扫描（**只列不删**） |
 | `dto/admin/*` | **新增** | 各请求/响应 DTO |

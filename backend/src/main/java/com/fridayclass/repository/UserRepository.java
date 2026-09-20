@@ -1,7 +1,12 @@
 package com.fridayclass.repository;
 
 import com.fridayclass.entity.User;
+import com.fridayclass.enums.Role;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.Optional;
 
@@ -20,4 +25,33 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     /** 用户名是否已被未删除的用户占用（注册查重用）。 */
     boolean existsByUsernameAndDeletedFalse(String username);
+
+    /** 统计某角色的**未删除**用户数。用来防「把最后一个管理员删掉」。 */
+    long countByRoleAndDeletedFalse(Role role);
+
+    /**
+     * 管理端用户检索：关键字（用户名/昵称）、角色、启用状态三个条件都可选。
+     *
+     * <p><b>为什么用 {@code :hasXxx} 布尔开关而不是 {@code :xxx is null}</b>：
+     * Hibernate 6 对「可为空的**枚举**参数做 is-null 判断」需要显式类型提示，
+     * 否则启动时就报无法推断参数类型。用布尔开关绕开这个问题，
+     * 条件读起来也更直白——「有没有这个筛选条件」本来就是布尔语义。
+     */
+    @Query("""
+            select u from User u
+            where u.deleted = false
+              and (:hasKeyword = false
+                   or lower(u.username) like lower(concat('%', :keyword, '%'))
+                   or lower(u.nickname) like lower(concat('%', :keyword, '%')))
+              and (:hasRole = false or u.role = :role)
+              and (:hasDisabled = false or u.disabled = :disabled)
+            order by u.id desc
+            """)
+    Page<User> searchForAdmin(@Param("hasKeyword") boolean hasKeyword,
+                              @Param("keyword") String keyword,
+                              @Param("hasRole") boolean hasRole,
+                              @Param("role") Role role,
+                              @Param("hasDisabled") boolean hasDisabled,
+                              @Param("disabled") Boolean disabled,
+                              Pageable pageable);
 }

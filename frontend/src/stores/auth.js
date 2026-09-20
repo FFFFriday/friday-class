@@ -45,9 +45,13 @@ export const useAuthStore = defineStore('auth', () => {
   const isLoggedIn = computed(() => !!token.value)
   const role = computed(() => user.value?.role || '')
   const isTeacher = computed(() => role.value === 'TEACHER')
+  /** 管理员。只有他能进 /admin/**；真正的边界在后端 SecurityConfig。 */
+  const isAdmin = computed(() => role.value === 'ADMIN')
   const displayName = computed(() => user.value?.nickname || user.value?.username || '')
   const avatarText = computed(() => displayName.value.slice(0, 1) || '?')
-  const roleText = computed(() => (isTeacher.value ? '教师' : '学生'))
+  const roleText = computed(
+    () => ({ TEACHER: '教师', ADMIN: '管理员' })[role.value] || '学生',
+  )
 
   /** 写入/清空会话，localStorage 与内存状态永远一起变。 */
   function setSession(nextToken, nextUser) {
@@ -101,6 +105,7 @@ export const useAuthStore = defineStore('auth', () => {
     isLoggedIn,
     role,
     isTeacher,
+    isAdmin,
     displayName,
     avatarText,
     roleText,

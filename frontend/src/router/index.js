@@ -74,6 +74,23 @@ const routes = [
     component: () => import('@/pages/SessionRecordPage.vue'),
     meta: { requiresAuth: true },
   },
+  {
+    // 管理端。用独立布局（左侧导航 + 内容区），不套 AppLayout 的顶栏。
+    //
+    // adminOnly 只是前端体验——学生根本不该看到管理入口。
+    // **真正的墙在后端**：SecurityConfig 里 /api/admin/** → hasRole('ADMIN')，
+    // 已实测学生与教师打任何管理端接口都是 403。
+    path: '/admin',
+    component: () => import('@/layouts/AdminLayout.vue'),
+    meta: { requiresAuth: true, adminOnly: true },
+    children: [
+      { path: '', name: 'admin-dashboard', component: () => import('@/pages/admin/AdminDashboard.vue') },
+      { path: 'users', name: 'admin-users', component: () => import('@/pages/admin/AdminUsersPage.vue') },
+      { path: 'sessions', name: 'admin-sessions', component: () => import('@/pages/admin/AdminSessionsPage.vue') },
+      { path: 'coursewares', name: 'admin-coursewares', component: () => import('@/pages/admin/AdminCoursewarePage.vue') },
+      { path: 'audit', name: 'admin-audit', component: () => import('@/pages/admin/AdminAuditPage.vue') },
+    ],
+  },
   { path: '/profile', name: 'profile', component: () => import('@/pages/ProfilePage.vue'), meta: { requiresAuth: true } },
 ]
 
@@ -108,6 +125,12 @@ router.beforeEach(async (to) => {
     }
 
     if (to.meta.teacherOnly && !auth.isTeacher) {
+      return { name: 'home' }
+    }
+
+    // 管理端路由守卫。注意这里**单独判 isAdmin**，不能用 teacherOnly 那一套：
+    // 管理员的角色是 ADMIN，isTeacher 为 false，套用上面那条会把他自己挡在门外。
+    if (to.meta.adminOnly && !auth.isAdmin) {
       return { name: 'home' }
     }
   }

@@ -2,10 +2,13 @@ package com.fridayclass.repository;
 
 import com.fridayclass.entity.ClassSession;
 import com.fridayclass.enums.SessionStatus;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -89,4 +92,46 @@ public interface ClassSessionRepository extends JpaRepository<ClassSession, Long
             order by s.id desc
             """)
     List<ClassSession> findMineWithDetail(@Param("teacherId") Long teacherId);
+
+    // ── 管理端（M6） ───────────────────────────────────────────
+
+    /**
+     * 管理端的全量课堂检索：状态、教师、关键字三个条件都可选。
+     *
+     * <p>用 {@code :hasXxx} 布尔开关而不是 {@code :xxx is null}，
+     * 理由同 {@code UserRepository.searchForAdmin}（Hibernate 6 对可空枚举参数
+     * 做 is-null 判断需要显式类型提示）。
+     *
+     * <p>{@code join fetch} 是必需的：列表要显示课件名与教师名，
+     * 而 {@code open-in-view=false}，事务外读懒加载关联会抛异常。
+     * 两个都是 to-one，所以配合分页不会退化成内存分页。
+     */
+    @Query("""
+            select s from ClassSession s
+            left join fetch s.courseware
+            left join fetch s.teacher
+            where (:hasStatus = false or s.status = :status)
+              and (:hasTeacher = false or s.teacher.id = :teacherId)
+              and (:hasKeyword = false or lower(s.title) like lower(concat('%', :keyword, '%')))
+            order by s.id desc
+            """)
+    Page<ClassSession> searchForAdmin(@Param("hasStatus") boolean hasStatus,
+                                      @Param("status") SessionStatus status,
+                                      @Param("hasTeacher") boolean hasTeacher,
+                                      @Param("teacherId") Long teacherId,
+                                      @Param("hasKeyword") boolean hasKeyword,
+                                      @Param("keyword") String keyword,
+                                      Pageable pageable);
+
+    /** 按状态批量取（「暂停所有课堂」这类批量操作用）。 */
+    List<ClassSession> findByStatus(SessionStatus status);
+
+    /** 按一组 ID 取，带课件与教师（批量操作后组装响应）。 */
+    @Query("""
+            select s from ClassSession s
+            left join fetch s.courseware
+            left join fetch s.teacher
+            where s.id in :ids
+            """)
+    List<ClassSession> findAllWithDetailByIdIn(@Param("ids") Collection<Long> ids);
 }

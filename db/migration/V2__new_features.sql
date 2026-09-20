@@ -189,7 +189,38 @@ ALTER TABLE `qa_record`
 
 
 -- =============================================================
--- 五、验证输出
+-- 五、user 表加「禁用」标记（M6 管理端的账号禁用/启用）
+--
+-- ⚠️ 初版计划书也漏了这一列（同 session_id 那次）：M6 的接口列表里有
+-- 「禁用 / 启用账号」，但 user 表只有 deleted（软删除），没有「禁用」这个维度。
+-- 两者不能混用：禁用是**临时**的（可恢复、账号还在、数据都在），
+-- 软删除是**移除**（列表里不再出现）。用 deleted 兼职禁用的话，
+-- 「启用」就得把 deleted 改回 0，等于把删除也一起撤销了。
+-- =============================================================
+
+DROP PROCEDURE IF EXISTS `fc_add_column`;
+DELIMITER $$
+CREATE PROCEDURE `fc_add_column`(
+  IN p_table VARCHAR(64), IN p_col VARCHAR(64), IN p_ddl TEXT)
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = p_table AND COLUMN_NAME = p_col
+  ) THEN
+    SET @s = CONCAT('ALTER TABLE `', p_table, '` ADD COLUMN ', p_ddl);
+    PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
+  END IF;
+END$$
+DELIMITER ;
+
+CALL fc_add_column('user', 'disabled',
+     '`disabled` TINYINT(1) NOT NULL DEFAULT 0 COMMENT ''禁用标记：1=禁止登录，但账号与数据都保留''');
+
+DROP PROCEDURE IF EXISTS `fc_add_column`;
+
+
+-- =============================================================
+-- 六、验证输出
 -- =============================================================
 
 SELECT '=== 新增的 4 张表 ===' AS `检查项`;
