@@ -5,6 +5,11 @@ import router from './router'
 import { setUnauthorizedHandler } from './api/http'
 import { useAuthStore } from './stores/auth'
 
+// 全局样式。顺序不能反：tokens.css 定义变量，base.css 引用变量，
+// 反过来的话 base.css 里所有 var() 都取不到值，页面会静默变成默认样式。
+import './styles/tokens.css'
+import './styles/base.css'
+
 const app = createApp(App)
 
 app.use(createPinia())

@@ -1,0 +1,160 @@
+/* =============================================================
+   周五课堂 — 基础样式（reset + 排版）
+
+   取代原先只写在 App.vue 里的那几行 reset。引入顺序必须是
+   tokens.css → base.css → 组件样式，否则变量取不到值。
+
+   ⚠ 这里的 reset 与 App.vue 里原有的 reset **取值完全一致**
+     （margin/padding 归零、border-box、同一套字体与底色），
+     所以引入后现有页面外观不变。
+   ============================================================= */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  font-family: var(--fc-font-sans);
+  font-size: var(--fc-font);
+  line-height: 1.6;
+  color: var(--fc-text);
+  background: var(--fc-bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#app {
+  min-height: 100%;
+}
+
+/* ── 排版 ─────────────────────────────────────────────────── */
+
+h1, h2, h3, h4, h5, h6 {
+  font-weight: var(--fc-weight-semibold);
+  line-height: 1.3;
+  color: var(--fc-text);
+}
+
+h1 { font-size: var(--fc-font-2xl); }
+h2 { font-size: var(--fc-font-xl); }
+h3 { font-size: var(--fc-font-lg); }
+h4 { font-size: var(--fc-font-md); }
+
+p { margin-bottom: var(--fc-space-3); }
+p:last-child { margin-bottom: 0; }
+
+a {
+  color: var(--fc-primary);
+  text-decoration: none;
+  transition: color var(--fc-transition);
+}
+a:hover { color: var(--fc-primary-hover); }
+
+code, pre {
+  font-family: var(--fc-font-mono);
+  font-size: 0.92em;
+}
+
+/* ── 表单元素继承字体 ─────────────────────────────────────── */
+/* 浏览器默认给 button/input 的是系统 UI 字体，不继承 body，
+   不写这几行就会出现「正文一种字体、按钮另一种字体」。 */
+
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+  border: none;
+  background: none;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+/* ── 去掉数字输入框的上下箭头 ─────────────────────────────── */
+input[type='number']::-webkit-outer-spin-button,
+input[type='number']::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type='number'] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+/* ── 滚动条 ───────────────────────────────────────────────── */
+/* 默认滚动条在浅色页面上很重，会抢视线。做成细灰条。 */
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--fc-border-strong);
+  border-radius: var(--fc-radius-pill);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--fc-border-heavy);
+}
+
+/* ── 焦点可见性 ───────────────────────────────────────────── */
+/* 只给键盘导航显示焦点圈（:focus-visible），鼠标点击不显示，
+   兼顾可访问性与观感。注意别写成 :focus——那样点鼠标也会出圈。 */
+
+:focus-visible {
+  outline: 2px solid var(--fc-primary);
+  outline-offset: 2px;
+}
+
+/* ── 工具类 ───────────────────────────────────────────────── */
+
+.fc-text-muted { color: var(--fc-text-muted); }
+.fc-text-faint { color: var(--fc-text-faint); }
+
+/* 单行省略。大量用在课件名、课堂名这类长度不可控的地方。 */
+.fc-ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 屏幕阅读器可见、视觉不可见。 */
+.fc-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ── 尊重「减少动效」偏好 ─────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

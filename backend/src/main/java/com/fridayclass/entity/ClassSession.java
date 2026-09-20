@@ -72,6 +72,22 @@ public class ClassSession {
     @Column(name = "ended_at")
     private LocalDateTime endedAt;
 
+    /** 暂停时间。NULL = 未暂停。恢复时清回 NULL。 */
+    @Column(name = "paused_at")
+    private LocalDateTime pausedAt;
+
+    /**
+     * 结束人。NULL = 老师自己下课；非空 = 被管理员强制下课。
+     * 存裸 ID 而不是 {@code @ManyToOne User}，理由见 {@code ChatMessage#deletedBy}：
+     * 「谁干的」这类追溯字段，写入方只需一个数字。
+     */
+    @Column(name = "ended_by")
+    private Long endedBy;
+
+    /** 结束原因，如 {@code ADMIN_FORCE}。老师自己下课时为 NULL。 */
+    @Column(name = "end_reason", length = 100)
+    private String endReason;
+
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;

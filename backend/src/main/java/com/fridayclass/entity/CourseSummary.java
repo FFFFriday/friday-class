@@ -1,7 +1,10 @@
 package com.fridayclass.entity;
 
+import com.fridayclass.enums.SummaryStatus;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -41,6 +44,28 @@ public class CourseSummary {
 
     @Column(columnDefinition = "TEXT")
     private String content;
+
+    /**
+     * 生成状态。总结是异步生成的（一次几十秒），接口不能挂着干等，
+     * 所以先落一条 PENDING 立刻返回，前端轮询，好了再取正文。
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private SummaryStatus status = SummaryStatus.SUCCESS;
+
+    /** 失败原因。仅有当 {@code status = FAILED} 时有值。 */
+    @Column(name = "error_message", columnDefinition = "TEXT")
+    private String errorMessage;
+
+    /**
+     * 总结来源。本次只做 {@code SESSION_CHAT}（<b>仅基于聊天记录</b>）。
+     *
+     * <p>刻意用 String 而不是建一个只有一个值的枚举：这是个预留的扩展位，
+     * 将来若要「课件 + 知识点 + 问答全量总结」再补第二个值，
+     * 现在就建枚举属于过早抽象。
+     */
+    @Column(nullable = false, length = 20)
+    private String source = "SESSION_CHAT";
 
     @CreationTimestamp
     @Column(name = "generated_at", nullable = false, updatable = false)

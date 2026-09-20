@@ -67,6 +67,7 @@ public class PageWebSocketHandler extends TextWebSocketHandler {
     private static final Logger log = LoggerFactory.getLogger(PageWebSocketHandler.class);
 
     private static final String ATTR_SESSION_ID = "sessionId";
+    private static final String ATTR_USER_ID = "userId";
     private static final String ATTR_AUTHENTICATED = "authenticated";
     private static final String ATTR_CONNECTED_AT = "connectedAt";
 
@@ -172,11 +173,14 @@ public class PageWebSocketHandler extends TextWebSocketHandler {
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
         pendingAuth.remove(session);
         Long sessionId = attrSessionId(session);
-        if (sessionId != null) {
-            registry.remove(sessionId, session);
+        Long userId = attrUserId(session);
+        // 两个属性都齐了才能摘除：登记表是按 (课堂, 用户) 索引的，
+        // 只知道课堂不知道人就没法定位到那一格。
+        if (sessionId != null && userId != null) {
+            registry.remove(sessionId, userId, session);
         }
-        log.debug("ws_closed wsSessionId={} sessionId={} status={}",
-                session.getId(), sessionId, status);
+        log.debug("ws_closed wsSessionId={} sessionId={} userId={} status={}",
+                session.getId(), sessionId, userId, status);
     }
 
     @Override
@@ -225,15 +229,20 @@ public class PageWebSocketHandler extends TextWebSocketHandler {
         }
 
         session.getAttributes().put(ATTR_AUTHENTICATED, Boolean.TRUE);
+        session.getAttributes().put(ATTR_USER_ID, user.getId());
         pendingAuth.remove(session);
-        registry.add(sessionId, session);
+        registry.add(sessionId, user.getId(), session);
 
         Map<String, Object> ack = new LinkedHashMap<>();
         ack.put("type", "auth_ok");
         ack.put("sessionId", sessionId);
         ack.put("userId", user.getId());
         ack.put("role", user.getRole().name());
-        ack.put("online", registry.count(sessionId));
+        // online = 在线「人数」，按用户去重：同一个人开两个标签页只算一个。
+        // 原先是「连接数」，单标签页下两者相同、多标签页下会虚高。
+        // 另附 connections 供排查连接泄漏时对照。前端目前不读这两个字段。
+        ack.put("online", registry.userCount(sessionId));
+        ack.put("connections", registry.count(sessionId));
         sendJson(session, ack);
 
         log.info("ws_authenticated sessionId={} userId={} role={}",
@@ -246,6 +255,11 @@ public class PageWebSocketHandler extends TextWebSocketHandler {
 
     private Long attrSessionId(WebSocketSession session) {
         Object value = session.getAttributes().get(ATTR_SESSION_ID);
+        return value instanceof Long id ? id : null;
+    }
+
+    private Long attrUserId(WebSocketSession session) {
+        Object value = session.getAttributes().get(ATTR_USER_ID);
         return value instanceof Long id ? id : null;
     }
 

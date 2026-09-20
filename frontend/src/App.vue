@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import AppLayout from '@/layouts/AppLayout.vue'
+import { FcToast } from '@/components/base'
 
 const route = useRoute()
 const showLayout = computed(() => route.meta.layout !== false)
@@ -12,17 +13,14 @@ const showLayout = computed(() => route.meta.layout !== false)
     <router-view />
   </AppLayout>
   <router-view v-else />
-</template>
 
-<style>
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
-  background: #f7f7f8;
-  color: #333;
-}
-</style>
+  <!--
+    全局唯一的轻提示出口。放在布局之外、最外层：
+    这样路由切换时它不会被卸载，跨页面报的提示才能留住。
+    它自己也 Teleport 到 body，不受任何父级样式影响。
+
+    原先这里的全局 reset 已移入 styles/base.css —— 取值完全一致
+    （归零、border-box、同一套字体与底色），所以外观零变化。
+  -->
+  <FcToast />
+</template>

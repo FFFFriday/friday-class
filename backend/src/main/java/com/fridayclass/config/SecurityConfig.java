@@ -96,6 +96,13 @@ public class SecurityConfig {
                         .requestMatchers("/ws/**").permitAll()
                         // 错误转发路径
                         .requestMatchers("/error").permitAll()
+                        // 管理端：整棵子树仅管理员可访问，放在白名单之后、默认拒绝之前。
+                        //
+                        // ⚠ 这一行是整个管理端的**唯一安全边界**。漏了它不是「功能不好用」，
+                        // 而是任何登录学生都能删库、重置任何人密码——包括管理员自己。
+                        // 前端那条 /admin/** 路由守卫只是体验层，真正的墙在这里。
+                        // 配套验证（必做）：用学生 token 调 /api/admin/** 必须返回 403。
+                        .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated())
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint((request, response, authException) ->

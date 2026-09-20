@@ -42,8 +42,15 @@ public class QaRecord {
     @JoinColumn(name = "student_id", nullable = false)
     private User student;
 
+    /**
+     * 提问时所在页。
+     *
+     * <p><b>必须可空。</b>学生<b>下课后</b>问 AI 时不在任何一页上，没有 page_id 可填；
+     * 这里先前是 {@code nullable = false}，会让「课后也能用 AI」这条需求
+     * 直接卡死在落库这一步。
+     */
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "page_id", nullable = false)
+    @JoinColumn(name = "page_id")
     private CoursewarePage page;
 
     @Column(nullable = false, columnDefinition = "TEXT")
@@ -76,6 +83,24 @@ public class QaRecord {
      */
     @Column(name = "client_request_id", length = 64)
     private String clientRequestId;
+
+    /**
+     * 所属 AI 会话。
+     *
+     * <p>老数据为 NULL <b>属正常</b>——它们产生于「会话管理」之前，没有会话可挂。
+     * 课堂记录页会把它们归到「历史对话」下展示，不报错。
+     */
+    @Column(name = "conversation_id")
+    private Long conversationId;
+
+    /**
+     * 所属课件（直连冗余列）。
+     *
+     * <p>没有它就只能从 {@code page_id} 两跳才能推出课件，而课后提问
+     * 根本没有 page_id（见上），统计链会直接断掉。
+     */
+    @Column(name = "courseware_id")
+    private Long coursewareId;
 
     /**
      * 提问时间。<b>刻意不加 {@code @CreationTimestamp}</b>，由 Service 用
