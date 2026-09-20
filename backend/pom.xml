@@ -117,6 +117,25 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <configuration>
+                    <!--
+                        强制走 IPv4。
+                        ⚠️ 这不是可有可无的调优，是本机跑得起来的前提之一。
+
+                        本机存在一条指向**链路本地网关**的 ::/0 默认路由（多半来自虚拟机网卡），
+                        于是 JVM 认为「IPv6 可用」并优先尝试；而 api.deepseek.com
+                        **只有 IPv4 地址**（无 AAAA 记录），本机也没有可用的 IPv6 出口。
+                        结果：每个模型调用都卡到连接超时，报 `Connect timed out`。
+
+                        curl 不受影响——它会做 Happy Eyeballs 自动回落到 IPv4。
+                        所以「**curl 能通、程序不能通**」正是这个问题的典型症状。
+
+                        症状极易被误判成「网络抖动」：时好时坏、重试偶尔能过。
+                        实际上原因只有一个，而且不修的话**每次都会失败**。
+
+                        用 java -jar 直接跑打包产物时，这个配置不生效，要自己带上：
+                          java -Djava.net.preferIPv4Stack=true -jar xxx.jar
+                    -->
+                    <jvmArguments>-Djava.net.preferIPv4Stack=true</jvmArguments>
                     <excludes>
                         <exclude>
                             <groupId>org.projectlombok</groupId>

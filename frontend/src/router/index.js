@@ -63,6 +63,17 @@ const routes = [
     component: () => import('@/pages/TeachPresentPage.vue'),
     meta: { requiresAuth: true, teacherOnly: true, layout: false },
   },
+  {
+    // 课堂记录：发言时间线 + 分学生 AI 问答 + 课后总结。
+    // 权限是「本课堂的授课教师，或任意管理员」——学生看不到，
+    // 因为记录里包含全班同学的发言与提问。真正的判定在后端
+    // （SessionRecordService.requireAccess），前端不做角色守卫是有意的：
+    // 管理员也要能进，而 teacherOnly 会把管理员挡在门外。
+    path: '/record/:sessionId',
+    name: 'session-record',
+    component: () => import('@/pages/SessionRecordPage.vue'),
+    meta: { requiresAuth: true },
+  },
   { path: '/profile', name: 'profile', component: () => import('@/pages/ProfilePage.vue'), meta: { requiresAuth: true } },
 ]
 

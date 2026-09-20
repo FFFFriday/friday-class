@@ -40,6 +40,26 @@ cd backend && mvn spring-boot:run          # → http://localhost:8081
 cd frontend && npm install && npm run dev  # → http://localhost:5173
 ```
 
+> ### ⚠️ 模型调用报「Connect timed out」怎么办
+>
+> 症状：AI 回答一律是「AI 助教暂时忙不过来，请稍后再试」，日志里是
+> `Connect timed out` 连 `api.deepseek.com/chat/completions`，
+> **但 `curl` 打同一个地址却完全正常**。
+>
+> 原因：本机有一条指向链路本地网关的 `::/0` 默认路由（多半来自虚拟机网卡），
+> JVM 据此认为 IPv6 可用并优先尝试；而 `api.deepseek.com` **只有 IPv4 地址**。
+> curl 会 Happy Eyeballs 自动回落，JVM 不会，于是一直卡到连接超时。
+>
+> **已经修好了**：`backend/pom.xml` 里的 `spring-boot-maven-plugin` 配了
+> `<jvmArguments>-Djava.net.preferIPv4Stack=true</jvmArguments>`，
+> `mvn spring-boot:run` 自动生效。
+>
+> 用 `java -jar` 直接跑打包产物时这个配置**不生效**，需要自己带上：
+>
+> ```bash
+> java -Djava.net.preferIPv4Stack=true -jar backend/target/friday-class-backend-*.jar
+> ```
+
 ## 技术栈
 
 | 层 | 选型 |

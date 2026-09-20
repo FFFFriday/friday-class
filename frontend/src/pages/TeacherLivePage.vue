@@ -311,6 +311,11 @@ watch(() => route.params.sessionId, load, { immediate: true })
           打开演示页 ↗
         </a>
 
+        <!-- 课堂记录：随时可看，不限于下课后——老师课上想回看某条发言也用得上 -->
+        <router-link class="btn btn-link" :to="`/record/${route.params.sessionId}`">
+          课堂记录
+        </router-link>
+
         <!-- 下课。已经下课就不再显示，避免老师以为还能再结一次 -->
         <button v-if="!ended" class="btn btn-end" :disabled="ending" @click="endClass">
           {{ ending ? '正在下课…' : '下课' }}

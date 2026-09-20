@@ -52,4 +52,36 @@ public class AiExecutorConfig {
         executor.initialize();
         return executor;
     }
+
+    /**
+     * 课堂总结专用池（M5）。<b>单线程，且刻意不与解析池共用。</b>
+     *
+     * <h3>为什么必须分开</h3>
+     * 解析池的大小就是「同时进行的模型调用数」的全局上限（默认 3）。
+     * 如果总结挤进同一个池：老师正在解析一份百页课件时点「生成总结」，
+     * 总结任务会排在几十个页任务后面——界面上就是「点了没反应」，
+     * 而它的状态一直是 PENDING，看起来像卡死了。
+     *
+     * <h3>为什么单线程</h3>
+     * 总结是低频的人工操作，同一时刻有多个请求的收益极小；
+     * 单线程还能保证「同一份记录不会被两个线程同时写进 course_summary」
+     * （那张表上 session_id 有唯一键，并发写会直接撞键）。
+     *
+     * <p>队列无界，理由同解析池：任务对象极小（几个 ID），
+     * 而有界队列一旦满了就会抛 RejectedExecutionException——
+     * 那条总结会永远停在 PENDING，前端会一直转圈。
+     */
+    @Bean(name = "summaryExecutor")
+    public ThreadPoolTaskExecutor summaryExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(1);
+        executor.setMaxPoolSize(1);
+        executor.setQueueCapacity(Integer.MAX_VALUE);
+        executor.setThreadNamePrefix("summary-");
+        // 关停时等在跑的那一篇写完：一次调用已经花了钱，结果不能丢
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(60);
+        executor.initialize();
+        return executor;
+    }
 }

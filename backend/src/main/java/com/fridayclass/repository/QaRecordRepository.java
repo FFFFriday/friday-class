@@ -52,6 +52,26 @@ public interface QaRecordRepository extends JpaRepository<QaRecord, Long> {
      */
     Optional<QaRecord> findByClientRequestId(String clientRequestId);
 
+    // ── 课堂记录（M5） ─────────────────────────────────────────
+
+    /**
+     * 某课堂的全部问答，<b>带上提问学生</b>与页信息。课堂记录按学生分组用。
+     *
+     * <p>排序按「学生 ID 升序、记录 ID 升序」：调用方拿到的就是已经按学生聚好的顺序，
+     * 直接顺序遍历即可分组，不必再排序。
+     */
+    @Query("""
+            select r from QaRecord r
+            join fetch r.student
+            left join fetch r.page
+            where r.session.id = :sessionId
+            order by r.student.id asc, r.id asc
+            """)
+    List<QaRecord> findBySessionWithStudentAndPage(@Param("sessionId") Long sessionId);
+
+    /** 某课堂的问答条数（课堂记录概览 + 总结的空记录拦截都用它）。 */
+    long countBySessionId(Long sessionId);
+
     // ── AI 会话（M4） ──────────────────────────────────────────
 
     /**
