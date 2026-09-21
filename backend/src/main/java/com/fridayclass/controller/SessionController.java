@@ -2,6 +2,7 @@ package com.fridayclass.controller;
 
 import com.fridayclass.common.ApiResponse;
 import com.fridayclass.dto.ListResult;
+import com.fridayclass.dto.MySessionResponse;
 import com.fridayclass.dto.PageChangeRequest;
 import com.fridayclass.dto.SessionCreateRequest;
 import com.fridayclass.dto.SessionResponse;
@@ -10,6 +11,7 @@ import com.fridayclass.dto.StreamStateResponse;
 import com.fridayclass.security.UserPrincipal;
 import com.fridayclass.service.ClassPresenceService;
 import com.fridayclass.service.ClassSessionService;
+import com.fridayclass.service.SessionAccessService;
 import jakarta.validation.Valid;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -33,11 +35,14 @@ public class SessionController {
 
     private final ClassSessionService classSessionService;
     private final ClassPresenceService classPresenceService;
+    private final SessionAccessService sessionAccessService;
 
     public SessionController(ClassSessionService classSessionService,
-                             ClassPresenceService classPresenceService) {
+                             ClassPresenceService classPresenceService,
+                             SessionAccessService sessionAccessService) {
         this.classSessionService = classSessionService;
         this.classPresenceService = classPresenceService;
+        this.sessionAccessService = sessionAccessService;
     }
 
     /**
@@ -86,13 +91,33 @@ public class SessionController {
      * （Spring 的 PathPattern 其实会优先匹配字面量段，但显式排在前面更不容易被后人改坏。）
      */
     @GetMapping("/active")
-    public ApiResponse<ListResult<SessionResponse>> active() {
-        return ApiResponse.ok(ListResult.of(classSessionService.listActive()));
+    public ApiResponse<ListResult<SessionResponse>> active(
+            @AuthenticationPrincipal UserPrincipal principal) {
+        return ApiResponse.ok(ListResult.of(classSessionService.listActive(principal)));
     }
 
-    /** 课堂详情（学生加入用）。 */
+    /**
+     * 学生端「我的课堂」（问题点 5）。
+     *
+     * <p>⚠ 必须声明在 {@link #detail} 之前，同 {@link #active()} 的理由：
+     * 否则 {@code my-sessions} 会被 {@code /{id}} 抢去解析成 Long 而报错。
+     */
+    @GetMapping("/my-sessions")
+    public ApiResponse<ListResult<MySessionResponse>> mySessions(
+            @AuthenticationPrincipal UserPrincipal principal) {
+        return ApiResponse.ok(ListResult.of(classSessionService.mySessions(principal)));
+    }
+
+    /**
+     * 课堂详情（学生加入用）。
+     *
+     * <p><b>这里有可见性校验（问题点 7）</b>：只过滤列表是不够的，
+     * 学生改一下 URL 里的 id 就能拿到别人课堂的详情、标题、教师、当前页码。
+     */
     @GetMapping("/{id}")
-    public ApiResponse<SessionResponse> detail(@PathVariable Long id) {
+    public ApiResponse<SessionResponse> detail(@PathVariable Long id,
+                                               @AuthenticationPrincipal UserPrincipal principal) {
+        sessionAccessService.requireStudentAccess(id, principal);
         return ApiResponse.ok(classSessionService.detail(id));
     }
 
@@ -116,7 +141,10 @@ public class SessionController {
      * <p>只读、需登录，不加角色限制——学生必须能查。
      */
     @GetMapping("/{id}/stream")
-    public ApiResponse<StreamStateResponse> streamState(@PathVariable Long id) {
+    public ApiResponse<StreamStateResponse> streamState(@PathVariable Long id,
+                                                        @AuthenticationPrincipal UserPrincipal principal) {
+        // 不校验的话，学生能拿到别人课堂的屏幕共享信令，进而连上那一路视频流
+        sessionAccessService.requireStudentAccess(id, principal);
         return ApiResponse.ok(classSessionService.streamState(id));
     }
 
@@ -128,7 +156,11 @@ public class SessionController {
      * 老师一刷新名单就空了，而学生其实都还在。
      */
     @GetMapping("/{id}/online")
-    public ApiResponse<ListResult<ClassPresenceService.OnlineUser>> online(@PathVariable Long id) {
+    public ApiResponse<ListResult<ClassPresenceService.OnlineUser>> online(
+            @PathVariable Long id,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        // 在线名单含**同学的昵称**，不该给不在这个班的学生看到
+        sessionAccessService.requireStudentAccess(id, principal);
         return ApiResponse.ok(ListResult.of(classPresenceService.onlineUsers(id)));
     }
 

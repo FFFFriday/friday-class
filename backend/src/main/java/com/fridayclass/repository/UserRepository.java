@@ -54,4 +54,33 @@ public interface UserRepository extends JpaRepository<User, Long> {
                               @Param("hasDisabled") boolean hasDisabled,
                               @Param("disabled") Boolean disabled,
                               Pageable pageable);
+
+    /**
+     * 可加入某个班级的学生（供班级管理页「加人」的搜索框）。
+     *
+     * <p>三件事都在 SQL 里做完，<b>都不交给前端</b>：
+     * <ol>
+     *   <li>只取 {@code STUDENT} 且未被禁用的账号 —— 教师账号不该被加进班级名单；</li>
+     *   <li>关键字匹配用户名或昵称；</li>
+     *   <li>{@code not exists} 排除**已经在这个班里**的人。</li>
+     * </ol>
+     * 第 3 条尤其不能下放给前端：那意味着未过滤的完整学生名单会先发到浏览器，
+     * 任何教师打开一次加人弹窗就看得到全校学生。
+     */
+    @Query("""
+            select u from User u
+            where u.deleted = false
+              and u.role = com.fridayclass.enums.Role.STUDENT
+              and u.disabled = false
+              and (:hasKeyword = false
+                   or lower(u.username) like lower(concat('%', :keyword, '%'))
+                   or lower(u.nickname) like lower(concat('%', :keyword, '%')))
+              and not exists (select 1 from ClassGroupMember m
+                              where m.classGroup.id = :groupId and m.user.id = u.id)
+            order by u.id desc
+            """)
+    Page<User> findStudentCandidates(@Param("groupId") Long groupId,
+                                     @Param("hasKeyword") boolean hasKeyword,
+                                     @Param("keyword") String keyword,
+                                     Pageable pageable);
 }

@@ -1,17 +1,28 @@
 package com.fridayclass.service;
 
 import com.fridayclass.common.BusinessException;
+import com.fridayclass.dto.MySessionResponse;
 import com.fridayclass.dto.SessionCreateRequest;
 import com.fridayclass.dto.SessionResponse;
 import com.fridayclass.dto.StreamStateResponse;
+import com.fridayclass.entity.ClassGroup;
 import com.fridayclass.entity.ClassSession;
 import com.fridayclass.entity.Courseware;
+import com.fridayclass.entity.SessionAudience;
+import com.fridayclass.entity.SessionClassGroup;
 import com.fridayclass.entity.User;
+import com.fridayclass.enums.AudienceSource;
 import com.fridayclass.enums.CoursewareStatus;
+import com.fridayclass.enums.Role;
 import com.fridayclass.enums.SessionStatus;
+import com.fridayclass.enums.SessionVisibility;
 import com.fridayclass.repository.ClassSessionRepository;
+import com.fridayclass.repository.CourseSummaryRepository;
 import com.fridayclass.repository.CoursewareRepository;
+import com.fridayclass.repository.SessionAudienceRepository;
+import com.fridayclass.repository.SessionClassGroupRepository;
 import com.fridayclass.repository.UserRepository;
+import com.fridayclass.security.UserPrincipal;
 import com.fridayclass.ws.ClassBroadcaster;
 import com.fridayclass.ws.PageBroadcaster;
 import com.fridayclass.ws.StreamStateRegistry;
@@ -23,8 +34,15 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.EnumSet;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -51,6 +69,10 @@ public class ClassSessionService {
     private final ClassSessionRepository sessionRepository;
     private final CoursewareRepository coursewareRepository;
     private final UserRepository userRepository;
+    private final SessionAudienceRepository audienceRepository;
+    private final SessionClassGroupRepository sessionGroupRepository;
+    private final CourseSummaryRepository summaryRepository;
+    private final ClassGroupService classGroupService;
     private final PageBroadcaster pageBroadcaster;
     private final ClassBroadcaster classBroadcaster;
     private final StreamStateRegistry streamStateRegistry;
@@ -59,6 +81,10 @@ public class ClassSessionService {
     public ClassSessionService(ClassSessionRepository sessionRepository,
                                CoursewareRepository coursewareRepository,
                                UserRepository userRepository,
+                               SessionAudienceRepository audienceRepository,
+                               SessionClassGroupRepository sessionGroupRepository,
+                               CourseSummaryRepository summaryRepository,
+                               ClassGroupService classGroupService,
                                PageBroadcaster pageBroadcaster,
                                ClassBroadcaster classBroadcaster,
                                StreamStateRegistry streamStateRegistry,
@@ -66,15 +92,36 @@ public class ClassSessionService {
         this.sessionRepository = sessionRepository;
         this.coursewareRepository = coursewareRepository;
         this.userRepository = userRepository;
+        this.audienceRepository = audienceRepository;
+        this.sessionGroupRepository = sessionGroupRepository;
+        this.summaryRepository = summaryRepository;
+        this.classGroupService = classGroupService;
         this.pageBroadcaster = pageBroadcaster;
         this.classBroadcaster = classBroadcaster;
         this.streamStateRegistry = streamStateRegistry;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
     }
 
-    /** 开课。初始状态 {@link SessionStatus#NOT_STARTED}，首次翻页时自动转为 LIVE。 */
+    /**
+     * 开课。初始状态 {@link SessionStatus#NOT_STARTED}，首次翻页时自动转为 LIVE。
+     *
+     * <p>P7 起多了「授课对象」：选班级（可多选=合班）、勾选学生、或公开课，三者必须显式表态。
+     * 开课**同一事务内**生成 {@code session_audience} 快照 —— 这是之后所有可见性判定的唯一依据。
+     */
     @Transactional
     public SessionResponse create(Long teacherId, SessionCreateRequest request) {
+        // ① 授课对象校验。放在最前面：不满足就直接拒，不做任何写操作。
+        List<Long> groupIds = distinctIds(request.classGroupIds());
+        List<Long> studentIds = distinctIds(request.studentIds());
+        boolean isPublic = request.visibility() == SessionVisibility.PUBLIC;
+
+        if (isPublic && (!groupIds.isEmpty() || !studentIds.isEmpty())) {
+            throw new BusinessException("公开课不能再指定班级或学生：两者只能选一个");
+        }
+        if (!isPublic && groupIds.isEmpty() && studentIds.isEmpty()) {
+            throw new BusinessException("请先选择授课对象：选班级、勾选学生，或设为公开课");
+        }
+
         Courseware courseware = coursewareRepository.findById(request.coursewareId())
                 .orElseThrow(() -> new BusinessException(404, "课件不存在"));
 
@@ -108,12 +155,115 @@ public class ClassSessionService {
         session.setTeacher(teacher);
         session.setTitle(resolveTitle(request.title(), courseware.getName()));
         session.setStatus(SessionStatus.NOT_STARTED);
+        session.setVisibility(isPublic ? SessionVisibility.PUBLIC : SessionVisibility.RESTRICTED);
         session = sessionRepository.save(session);
 
-        log.info("session_created id={} coursewareId={} teacher={}",
-                session.getId(), courseware.getId(), teacher.getUsername());
+        // ③ 生成听课名单快照 + 记录面向的班级。公开课不需要名单（谁都能看）。
+        int audienceCount = 0;
+        if (!isPublic) {
+            audienceCount = writeAudienceSnapshot(session, teacherId, groupIds, studentIds);
+        }
+
+        log.info("session_created id={} coursewareId={} teacher={} visibility={} audience={} groups={}",
+                session.getId(), courseware.getId(), teacher.getUsername(),
+                session.getVisibility(), audienceCount, groupIds.size());
 
         return SessionResponse.from(session);
+    }
+
+    // ── 授课对象（P7） ─────────────────────────────────────────
+
+    /**
+     * 写入开课快照：{@code session_audience}（谁能看）+ {@code session_class_group}（面向哪些班）。
+     *
+     * <p>合班在这里被**摊平成并集**：选中的每个班取全体成员，合并去重后逐行写入。
+     * 所以「合班」在授权层面根本不是特例 —— 之后无论查谁能不能看，
+     * 都只是在这一张表上做一次唯一键命中。
+     *
+     * @return 实际写入的名单人数
+     */
+    private int writeAudienceSnapshot(ClassSession session, Long teacherId,
+                                      List<Long> groupIds, List<Long> studentIds) {
+        // 这一步内部会校验这些班都属于这位教师（横向越权防护）
+        Set<Long> fromGroups = classGroupService.resolveAudienceUserIds(groupIds, teacherId);
+        Set<Long> manual = requireStudents(studentIds);
+
+        List<SessionAudience> rows = new ArrayList<>();
+        for (Long userId : fromGroups) {
+            rows.add(audienceRow(session, userId, AudienceSource.CLASS));
+        }
+        for (Long userId : manual) {
+            // 已被班级带进来的人不重复占行 —— 唯一键也会挡住，
+            // 但先在内存里去重可以避免拿约束违例当控制流
+            if (!fromGroups.contains(userId)) {
+                rows.add(audienceRow(session, userId, AudienceSource.MANUAL));
+            }
+        }
+        audienceRepository.saveAll(rows);
+
+        // 记录这节课面向哪些班（仅供展示与「按班查课」，不参与授权）
+        List<SessionClassGroup> links = new ArrayList<>();
+        for (ClassGroup group : classGroupService.findAllByIds(groupIds)) {
+            SessionClassGroup link = new SessionClassGroup();
+            link.setSession(session);
+            link.setClassGroup(group);
+            links.add(link);
+        }
+        sessionGroupRepository.saveAll(links);
+
+        return rows.size();
+    }
+
+    /**
+     * 把请求里的学生 ID 校验成「真的能听课的学生」。
+     *
+     * <p><b>不合格的一律拒绝，而不是静默丢弃。</b> 静默丢弃的话，老师明明勾了张三，
+     * 上课时张三却进不来，而且没有任何提示 —— 这种「看起来成功了」的失败最难查。
+     * 直接报错说清楚有几个不合格，比事后排查便宜得多。
+     *
+     * <p>过滤条件与 {@code ClassGroupService.addMembers} 完全一致：
+     * 未删除、未禁用、且角色是学生。**不能把教师或管理员加进听课名单**，
+     * 否则班级名单会成为一条提权路径。
+     */
+    private Set<Long> requireStudents(List<Long> studentIds) {
+        if (studentIds.isEmpty()) {
+            return Set.of();
+        }
+        Map<Long, User> found = new HashMap<>();
+        userRepository.findAllById(studentIds).forEach(u -> found.put(u.getId(), u));
+
+        Set<Long> valid = new LinkedHashSet<>();
+        for (Long id : studentIds) {
+            User user = found.get(id);
+            if (user != null
+                    && !Boolean.TRUE.equals(user.getDeleted())
+                    && !Boolean.TRUE.equals(user.getDisabled())
+                    && user.getRole() == Role.STUDENT) {
+                valid.add(id);
+            }
+        }
+        if (valid.size() != studentIds.size()) {
+            throw new BusinessException("选中的学生里有 "
+                    + (studentIds.size() - valid.size())
+                    + " 个不是有效学生账号（可能已删除、已禁用或不是学生）");
+        }
+        return valid;
+    }
+
+    private SessionAudience audienceRow(ClassSession session, Long userId, AudienceSource source) {
+        SessionAudience row = new SessionAudience();
+        row.setSession(session);
+        row.setUser(userRepository.getReferenceById(userId));
+        row.setSource(source);
+        return row;
+    }
+
+    /** 去掉 null 并保序去重。前端传重复 id 是常事，不该变成两次插入。 */
+    private static List<Long> distinctIds(Collection<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return List.of();
+        }
+        return new ArrayList<>(new LinkedHashSet<>(ids)).stream().filter(java.util.Objects::nonNull).toList();
     }
 
     /** 课堂详情。不存在（含已软删除）返回 404。 */
@@ -125,14 +275,55 @@ public class ClassSessionService {
     /**
      * 正在直播的课堂列表。
      *
-     * <p>这是学生**唯一的入口**——没有它，学生只能靠老师私下发链接，
-     * 门户上看不到「现在有课在讲」。按开课时间倒序，最近开的排最前。
+     * <p>这是学生发现「现在有课在讲」的入口。按开课时间倒序，最近开的排最前。
+     *
+     * <p><b>学生看到的必须是过滤后的结果（问题点 7）</b>：只在 SQL 里筛，
+     * 不把全量捞出来再在内存里删。后者会让不该给这个学生看的课堂
+     * （含标题、教师名）先进入应用进程，判定一旦写错就是全量泄露。
      */
     @Transactional(readOnly = true)
-    public List<SessionResponse> listActive() {
-        return sessionRepository.findByStatusWithDetail(SessionStatus.LIVE)
-                .stream()
-                .map(SessionResponse::from)
+    public List<SessionResponse> listActive(UserPrincipal principal) {
+        List<ClassSession> sessions = SessionAccessService.isStudent(principal)
+                ? sessionRepository.findByStatusVisibleTo(SessionStatus.LIVE, principal.getId())
+                : sessionRepository.findByStatusWithDetail(SessionStatus.LIVE);
+        return sessions.stream().map(SessionResponse::from).toList();
+    }
+
+    /**
+     * 学生端「我的课堂」（问题点 5）。
+     *
+     * <p>返回他能看到的**全部**课堂：公开课 + {@code session_audience} 名单里的课。
+     * 进行中的排在前面（可以直接进去），已结束的排在后面（点进回顾页）。
+     *
+     * <p>⚠ 由于历史课堂被统一设为 {@code PUBLIC}（Friday 决策 3），
+     * 学生会看到全部历史课。这是那条决策的直接结果，不是 bug ——
+     * 若希望「我的课堂」只显示真正点过名的课，改
+     * {@code ClassSessionRepository.findMySessions} 的 where 条件即可。
+     */
+    @Transactional(readOnly = true)
+    public List<MySessionResponse> mySessions(UserPrincipal principal) {
+        if (!SessionAccessService.isStudent(principal)) {
+            throw new BusinessException(403, "「我的课堂」是学生端接口");
+        }
+
+        List<ClassSession> sessions = sessionRepository.findMySessions(principal.getId());
+        if (sessions.isEmpty()) {
+            return List.of();
+        }
+        List<Long> ids = sessions.stream().map(ClassSession::getId).toList();
+
+        // 下面两次都是批量查，不是逐条查 —— 否则一页 20 节课会变成 40 次 SQL
+        Map<Long, List<String>> groupNames = new HashMap<>();
+        for (SessionClassGroup link : sessionGroupRepository.findBySessionIdsWithGroup(ids)) {
+            groupNames.computeIfAbsent(link.getSession().getId(), k -> new ArrayList<>())
+                    .add(link.getClassGroup().getName());
+        }
+        Set<Long> withSummary = new HashSet<>(summaryRepository.findSessionIdsWithSummary(ids));
+
+        return sessions.stream()
+                .map(s -> MySessionResponse.from(s,
+                        groupNames.getOrDefault(s.getId(), List.of()),
+                        withSummary.contains(s.getId())))
                 .toList();
     }
 

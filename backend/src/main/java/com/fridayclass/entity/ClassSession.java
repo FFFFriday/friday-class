@@ -1,6 +1,7 @@
 package com.fridayclass.entity;
 
 import com.fridayclass.enums.SessionStatus;
+import com.fridayclass.enums.SessionVisibility;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -18,20 +19,43 @@ import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.NotFound;
 import org.hibernate.annotations.NotFoundAction;
-import org.hibernate.annotations.SQLRestriction;
 import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.LocalDateTime;
 
 /**
  * 课堂/直播会话实体。对应 class_session 表。
+ *
+ * <p><b>注意：这里刻意<b>没有</b> {@code @SQLRestriction("deleted = 0")}（2026-09-22 移除）。</b>
+ *
+ * <p>理由与 {@link User} 完全一致 —— {@code ClassSession} 是**被 join 的一方**：
+ * {@code ChatMessage}、{@code QaRecord}、{@code SessionParticipant}、{@code CourseSummary}、
+ * {@code AiConversation} 五个实体都有指向它的 {@code @ManyToOne}。
+ * 把软删条件挂在实体上会被追加进 join 条件，行被滤掉而外键仍有值，
+ * Hibernate 就判定「数据坏了」并抛 {@code FetchNotFoundException} /
+ * {@code ObjectRetrievalFailureException} —— 2026-09-22 管理端两个页面打不开，
+ * 正是 {@code Courseware} 上同一颗雷炸了（见 {@code X2} 分册）。
+ *
+ * <p>而移除它在这里是**零风险**的，因为：
+ * <ol>
+ *   <li>全项目**没有任何一处**软删课堂 —— 没有 {@code setDeleted(true)} 的调用，
+ *       实测 {@code class_session} 里 {@code deleted = 1} 的行数为 <b>0</b>；</li>
+ *   <li>因此这个注解今天**过滤不掉任何一行**，它唯一的作用就是埋雷。</li>
+ * </ol>
+ *
+ * <p>这与 {@code Courseware} 上「保留 {@code @SQLRestriction}、改用 {@code @NotFound}」
+ * 是**两个不同处境下的不同解法**，不要互相套用：
+ * {@code Courseware} 有 10 个 Service 依赖它做过滤（删掉会漏出已删课件），
+ * {@code ClassSession} 则没有任何依赖。
+ *
+ * <p>{@code deleted} 列本身保留 —— 将来若真要软删课堂，请连同
+ * {@code ChatMessage#session} 等五处关联一起处理，判据见 {@code AiConversation#session}。
  */
 @Getter
 @Setter
 @NoArgsConstructor
 @Entity
 @Table(name = "class_session")
-@SQLRestriction("deleted = 0")
 public class ClassSession {
 
     @Id
@@ -70,6 +94,19 @@ public class ClassSession {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private SessionStatus status = SessionStatus.NOT_STARTED;
+
+    /**
+     * 可见性。决定「谁能看到这节课」，判定口径见 {@code SessionAccessService}。
+     *
+     * <p><b>默认 {@code RESTRICTED}（拒绝优先）</b>，与数据库列默认值一致。
+     * 具体谁能看，由 {@code session_audience} 开课快照决定，本字段只是总开关。
+     *
+     * <p>V3 迁移（2026-09-22）之前就存在的历史课堂，已统一回填成 {@code PUBLIC}，
+     * 所以升级后学生端不会出现「历史记录突然全消失」。
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private SessionVisibility visibility = SessionVisibility.RESTRICTED;
 
     @Column(name = "stream_push_url", length = 500)
     private String streamPushUrl;

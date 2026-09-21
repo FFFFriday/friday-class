@@ -56,12 +56,22 @@ public class AdminAuditService {
     public static final String COURSEWARE_REPARSE = "COURSEWARE_REPARSE";
     public static final String STORAGE_ORPHAN_CLEAN = "STORAGE_ORPHAN_CLEAN";
 
+    // 班级体系（问题点 8）。只有**管理端跨教师**的操作才记审计 ——
+    // 教师管理自己的班属于日常操作，逐条记流水会把审计日志淹掉，
+    // 反而让「谁动了别人的班」这种真正该被看见的事沉下去。
+    public static final String CLASS_CREATE = "CLASS_CREATE";
+    public static final String CLASS_UPDATE = "CLASS_UPDATE";
+    public static final String CLASS_DELETE = "CLASS_DELETE";
+    public static final String CLASS_MEMBER_ADD = "CLASS_MEMBER_ADD";
+    public static final String CLASS_MEMBER_REMOVE = "CLASS_MEMBER_REMOVE";
+
     // ── 对象类型 ──────────────────────────────────────────────
 
     public static final String TARGET_USER = "USER";
     public static final String TARGET_SESSION = "SESSION";
     public static final String TARGET_COURSEWARE = "COURSEWARE";
     public static final String TARGET_STORAGE = "STORAGE";
+    public static final String TARGET_CLASS_GROUP = "CLASS_GROUP";
 
     /**
      * 记一笔。

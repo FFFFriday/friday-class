@@ -6,6 +6,7 @@ import com.fridayclass.dto.QaAskRequest;
 import com.fridayclass.dto.QaRecordResponse;
 import com.fridayclass.security.UserPrincipal;
 import com.fridayclass.service.QaService;
+import com.fridayclass.service.SessionAccessService;
 import jakarta.validation.Valid;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -31,9 +32,11 @@ import java.util.List;
 public class QaController {
 
     private final QaService qaService;
+    private final SessionAccessService sessionAccessService;
 
-    public QaController(QaService qaService) {
+    public QaController(QaService qaService, SessionAccessService sessionAccessService) {
         this.qaService = qaService;
+        this.sessionAccessService = sessionAccessService;
     }
 
     /**
@@ -51,6 +54,12 @@ public class QaController {
     @PostMapping("/ask")
     public ApiResponse<QaRecordResponse> ask(@Valid @RequestBody QaAskRequest request,
                                              @AuthenticationPrincipal UserPrincipal principal) {
+        // sessionId 可空（课后就某一页自由提问）。带了就说明是在某个课堂上下文里问的，
+        // 那就必须先确认这个学生在这节课的名单里 —— 否则可以借别人的课堂上下文
+        // 拿到那节课的页码与知识点（问题点 7）
+        if (request.sessionId() != null) {
+            sessionAccessService.requireStudentAccess(request.sessionId(), principal);
+        }
         return ApiResponse.ok(qaService.ask(principal.getId(), request));
     }
 
@@ -62,7 +71,9 @@ public class QaController {
      */
     @GetMapping("/records")
     public ApiResponse<ListResult<QaRecordResponse>> records(@RequestParam Long sessionId,
-                                                            @RequestParam(required = false) Long pageId) {
+                                                            @RequestParam(required = false) Long pageId,
+                                                            @AuthenticationPrincipal UserPrincipal principal) {
+        sessionAccessService.requireStudentAccess(sessionId, principal);
         List<QaRecordResponse> records = qaService.records(sessionId, pageId);
         return ApiResponse.ok(ListResult.of(records));
     }

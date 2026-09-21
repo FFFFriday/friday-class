@@ -4,6 +4,7 @@ import com.fridayclass.common.ApiResponse;
 import com.fridayclass.dto.ChatHistoryResponse;
 import com.fridayclass.security.UserPrincipal;
 import com.fridayclass.service.ChatService;
+import com.fridayclass.service.SessionAccessService;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -27,9 +28,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class ChatController {
 
     private final ChatService chatService;
+    private final SessionAccessService sessionAccessService;
 
-    public ChatController(ChatService chatService) {
+    public ChatController(ChatService chatService, SessionAccessService sessionAccessService) {
         this.chatService = chatService;
+        this.sessionAccessService = sessionAccessService;
     }
 
     /**
@@ -46,7 +49,11 @@ public class ChatController {
     public ApiResponse<ChatHistoryResponse> messages(@PathVariable Long sessionId,
                                                      @RequestParam(required = false) Long afterId,
                                                      @RequestParam(required = false) Long beforeId,
-                                                     @RequestParam(required = false) Integer limit) {
+                                                     @RequestParam(required = false) Integer limit,
+                                                     @AuthenticationPrincipal UserPrincipal principal) {
+        // 讨论区是**面向这个班内部**的。不校验的话，任何一个登录学生
+        // 换个 sessionId 就能旁听别的班的课堂讨论（问题点 7）
+        sessionAccessService.requireStudentAccess(sessionId, principal);
         return ApiResponse.ok(chatService.history(sessionId, afterId, beforeId, limit));
     }
 

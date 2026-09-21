@@ -98,6 +98,16 @@ public class SecurityConfig {
                         .requestMatchers("/ws/**").permitAll()
                         // 错误转发路径
                         .requestMatchers("/error").permitAll()
+                        // 学生端「我的课堂」：只返回 principal 自己被授权的课，
+                        // 不需要角色限制（教师管理员也能调，会拿到自己相关的）。
+                        // ⚠ 必须声明在 /api/session/{id} 之前：否则 "my-sessions"
+                        // 会被当成 {id} 去解析成 Long，报「参数格式不正确：id」。
+                        .requestMatchers(HttpMethod.GET, "/api/session/my-sessions").authenticated()
+                        // 班级管理（问题点 6/8）。项目是 deny-by-default，
+                        // **不写这一行每个班级接口都会 403**，而症状是「功能不好用」，
+                        // 极易被误当成前端 bug。教师与管理员都能用；
+                        // 「是不是自己建的班」由 Service 的归属校验兜底（见 ClassGroupService）。
+                        .requestMatchers("/api/class-groups/**").hasAnyRole("TEACHER", "ADMIN")
                         // 管理端：整棵子树仅管理员可访问，放在白名单之后、默认拒绝之前。
                         //
                         // ⚠ 这一行是整个管理端的**唯一安全边界**。漏了它不是「功能不好用」，
