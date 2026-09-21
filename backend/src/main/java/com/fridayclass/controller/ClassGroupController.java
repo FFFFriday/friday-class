@@ -6,6 +6,7 @@ import com.fridayclass.dto.ClassGroupRequest;
 import com.fridayclass.dto.ClassGroupResponse;
 import com.fridayclass.dto.ListResult;
 import com.fridayclass.dto.PageResult;
+import com.fridayclass.dto.SessionResponse;
 import com.fridayclass.dto.StudentCandidateResponse;
 import com.fridayclass.security.UserPrincipal;
 import com.fridayclass.service.ClassGroupService;
@@ -62,6 +63,22 @@ public class ClassGroupController {
         return ApiResponse.ok(ListResult.of(classGroupService.listMine(principal.getId())));
     }
 
+    /**
+     * 我名下的学生（供开课弹窗单独勾选）。
+     *
+     * <p>只返回**自己班里**的学生，不是全校名册 —— 详见
+     * {@code ClassGroupMemberRepository.findMyStudents} 上的取舍说明。
+     */
+    @GetMapping("/my-students")
+    public ApiResponse<ListResult<StudentCandidateResponse>> myStudents(
+            @AuthenticationPrincipal UserPrincipal principal,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "50") int size) {
+        return ApiResponse.ok(ListResult.of(
+                classGroupService.myStudents(principal.getId(), keyword, page, size)));
+    }
+
     /** 建班。{@code teacherId} 取登录用户，请求体里没有这个字段。 */
     @PostMapping
     public ApiResponse<ClassGroupResponse> create(@Valid @RequestBody ClassGroupRequest request,
@@ -90,6 +107,13 @@ public class ClassGroupController {
                                     @AuthenticationPrincipal UserPrincipal principal) {
         classGroupService.delete(id, principal.getId(), false);
         return ApiResponse.ok(null);
+    }
+
+    /** 这个班开过哪些课（班级详情的下半部分）。 */
+    @GetMapping("/{id}/sessions")
+    public ApiResponse<ListResult<SessionResponse>> sessions(@PathVariable Long id,
+                                                            @AuthenticationPrincipal UserPrincipal principal) {
+        return ApiResponse.ok(ListResult.of(classGroupService.sessionsOf(id, principal.getId(), false)));
     }
 
     /** 可加入的学生（已排除班内已有的人）。 */

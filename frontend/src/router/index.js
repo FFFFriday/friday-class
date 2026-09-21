@@ -64,11 +64,22 @@ const routes = [
     meta: { requiresAuth: true, teacherOnly: true, layout: false },
   },
   {
+    // 教师端班级管理（问题点 6）：建班、加人、看这个班开过哪些课。
+    // teacherOnly 只是前端体验；后端在 SecurityConfig 上把
+    // /api/class-groups/** 限成 TEACHER 或 ADMIN，且 Service 里还会校验
+    // 「这个班是不是你建的」（教师只能碰自己的班）。
+    path: '/teacher/classes',
+    name: 'teacher-classes',
+    component: () => import('@/pages/TeacherClassesPage.vue'),
+    meta: { requiresAuth: true, teacherOnly: true },
+  },
+  {
     // 课堂记录：发言时间线 + 分学生 AI 问答 + 课后总结。
-    // 权限是「本课堂的授课教师，或任意管理员」——学生看不到，
-    // 因为记录里包含全班同学的发言与提问。真正的判定在后端
-    // （SessionRecordService.requireAccess），前端不做角色守卫是有意的：
-    // 管理员也要能进，而 teacherOnly 会把管理员挡在门外。
+    // 权限是「本课堂的授课教师、任意管理员，或**这节课名单内的学生**」。
+    // 学生能看到讨论区与参与名单，但 record/qa 只返回他自己的提问。
+    // 真正的判定在后端（SessionRecordService.requireAccess /
+    // SessionAccessService），前端不做角色守卫是有意的：
+    // 管理员与名单内学生都要能进，而 teacherOnly 会把他们都挡在门外。
     path: '/record/:sessionId',
     name: 'session-record',
     component: () => import('@/pages/SessionRecordPage.vue'),
@@ -86,6 +97,7 @@ const routes = [
     children: [
       { path: '', name: 'admin-dashboard', component: () => import('@/pages/admin/AdminDashboard.vue') },
       { path: 'users', name: 'admin-users', component: () => import('@/pages/admin/AdminUsersPage.vue') },
+      { path: 'classes', name: 'admin-classes', component: () => import('@/pages/admin/AdminClassesPage.vue') },
       { path: 'sessions', name: 'admin-sessions', component: () => import('@/pages/admin/AdminSessionsPage.vue') },
       { path: 'coursewares', name: 'admin-coursewares', component: () => import('@/pages/admin/AdminCoursewarePage.vue') },
       { path: 'audit', name: 'admin-audit', component: () => import('@/pages/admin/AdminAuditPage.vue') },

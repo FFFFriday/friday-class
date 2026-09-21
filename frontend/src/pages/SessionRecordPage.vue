@@ -14,9 +14,11 @@ import ChatTimeline from '@/components/features/ChatTimeline.vue'
 import StudentQaList from '@/components/features/StudentQaList.vue'
 import SummaryPanel from '@/components/features/SummaryPanel.vue'
 import { FcButton, FcLoading } from '@/components/base'
+import { useAuthStore } from '@/stores/auth'
 
 const route = useRoute()
 const router = useRouter()
+const auth = useAuthStore()
 
 const TABS = [
   { key: 'chat', label: '发言记录' },
@@ -216,7 +218,13 @@ watch(sessionId, load, { immediate: true })
           :error="qaError"
         />
 
-        <SummaryPanel v-else :session-id="sessionId" />
+        <!-- 学生能**读**总结，但不能**生成**（生成要调付费模型，后端 requireManageAccess 挡住）。
+             学生照样看得到这个 tab，只是里面没有生成按钮 -->
+        <SummaryPanel
+          v-else
+          :session-id="sessionId"
+          :can-generate="auth.isTeacher || auth.isAdmin"
+        />
       </section>
     </template>
   </div>

@@ -7,9 +7,11 @@ import com.fridayclass.dto.ClassGroupRequest;
 import com.fridayclass.dto.ClassGroupResponse;
 import com.fridayclass.dto.ListResult;
 import com.fridayclass.dto.PageResult;
+import com.fridayclass.dto.SessionResponse;
 import com.fridayclass.dto.StudentCandidateResponse;
 import com.fridayclass.entity.ClassGroup;
 import com.fridayclass.entity.ClassGroupMember;
+import com.fridayclass.entity.SessionClassGroup;
 import com.fridayclass.entity.User;
 import com.fridayclass.enums.Role;
 import com.fridayclass.repository.ClassGroupMemberRepository;
@@ -134,12 +136,45 @@ public class ClassGroupService {
         return ListResult.of(found.getContent().stream().map(StudentCandidateResponse::from).toList());
     }
 
+    /**
+     * 我（教师）名下班里的全部学生，供开课弹窗的「单独勾选同学」搜索。
+     *
+     * <p><b>只搜自己班里的学生</b>，不是全校名册 —— 理由与取舍写在
+     * {@code ClassGroupMemberRepository.findMyStudents} 上。
+     */
+    @Transactional(readOnly = true)
+    public List<StudentCandidateResponse> myStudents(Long teacherId, String keyword, int page, int size) {
+        String kw = (keyword == null || keyword.isBlank()) ? null : keyword.trim();
+        PageRequest pageable = PageRequest.of(Math.max(page, 1) - 1,
+                Math.min(Math.max(size, 1), MAX_CANDIDATE_SIZE));
+        return memberRepository.findMyStudents(teacherId, kw != null, kw == null ? "" : kw, pageable)
+                .stream()
+                .map(StudentCandidateResponse::from)
+                .toList();
+    }
+
     /** 学生端：我所在的班级。 */
     @Transactional(readOnly = true)
     public List<ClassGroupResponse> myGroups(Long studentId) {
         return memberRepository.findMyGroups(studentId).stream()
                 .map(ClassGroupMember::getClassGroup)
                 .map(this::toSummary)
+                .toList();
+    }
+
+    /**
+     * 这个班开过哪些课（教师端班级详情的下半部分）。
+     *
+     * <p>查的是 {@code session_class_group} 关联表 —— 注意它与「谁能看这节课」无关：
+     * 一个学生后来被移出班级，他照样能回顾以前上过的课，因为可见性在开课时
+     * 就快照进了 {@code session_audience}。这里只是给老师看「我给这个班上了什么」。
+     */
+    @Transactional(readOnly = true)
+    public List<SessionResponse> sessionsOf(Long groupId, Long actorId, boolean isAdmin) {
+        requireOwnedGroup(groupId, actorId, isAdmin);
+        return sessionGroupRepository.findByGroupWithSession(groupId).stream()
+                .map(SessionClassGroup::getSession)
+                .map(SessionResponse::from)
                 .toList();
     }
 

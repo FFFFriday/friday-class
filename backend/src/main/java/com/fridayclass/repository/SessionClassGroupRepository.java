@@ -41,4 +41,21 @@ public interface SessionClassGroupRepository extends JpaRepository<SessionClassG
 
     /** 某个班开过多少节课（管理端班级列表的「已开课数」）。 */
     long countByClassGroupId(Long classGroupId);
+
+    /**
+     * 某个班开过的课（教师端班级详情里的「这个班都上过哪些课」）。
+     *
+     * <p>一次把课件与教师都 fetch 出来：列表要显示课件名与教师名，
+     * 而 {@code open-in-view=false}，事务外读懒加载关联会抛
+     * {@code LazyInitializationException}。三个关联都是 to-one，不会退化成内存分页。
+     */
+    @Query("""
+            select s from SessionClassGroup s
+            join fetch s.session ss
+            left join fetch ss.courseware
+            left join fetch ss.teacher
+            where s.classGroup.id = :groupId
+            order by ss.id desc
+            """)
+    List<SessionClassGroup> findByGroupWithSession(@Param("groupId") Long groupId);
 }

@@ -391,9 +391,17 @@ watch(() => route.params.sessionId, load, { immediate: true })
 
     <template v-else>
       <!-- 下课了就明说，否则老师会以为是自己卡了 -->
-      <p v-if="ended" class="ended-banner" role="status">
-        本节课已结束，学生端已收到通知。如需继续，请回到课件页重新开课。
-      </p>
+      <div v-if="ended" class="ended-banner" role="status">
+        <span>本节课已结束，学生端已收到通知。如需继续，请回到课件页重新开课。</span>
+        <!-- 刚下课这一刻是老师最想看总结的时候，入口就放这里（问题点 9）。
+             以前唯一的回顾入口在别处，老师一离开这个页面就再也找不到了。 -->
+        <RouterLink
+          class="ended-banner__link"
+          :to="{ name: 'session-record', params: { sessionId: route.params.sessionId } }"
+        >
+          查看课堂回顾与总结 →
+        </RouterLink>
+      </div>
 
       <!--
         直接 <img> 引用后端渲染好的整页 PPT 图片（GET /slides/{id}/page{n}.png）。
@@ -753,6 +761,11 @@ watch(() => route.params.sessionId, load, { immediate: true })
 }
 
 .ended-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
   font-size: 13px;
   color: #8a6d3b;
   background: #fcf8e3;
@@ -760,6 +773,22 @@ watch(() => route.params.sessionId, load, { immediate: true })
   padding: 10px 14px;
   border-radius: 8px;
   margin-bottom: 12px;
+}
+
+/* 下课横幅里的回顾入口做成实心按钮：这一刻老师最想看的就是总结，
+   不该跟提示文案混在一起看不清 */
+.ended-banner__link {
+  flex-shrink: 0;
+  padding: 5px 12px;
+  border-radius: 7px;
+  background: #d97757;
+  color: #fff;
+  font-size: 12px;
+  text-decoration: none;
+}
+
+.ended-banner__link:hover {
+  background: #c9694a;
 }
 
 /* PPT 是 16:9。用 aspect-ratio 而不是写死高度：窄屏时会等比缩小而不是拉伸变形 */

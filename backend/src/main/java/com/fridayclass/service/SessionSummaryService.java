@@ -34,7 +34,9 @@ import org.springframework.transaction.support.TransactionTemplate;
  *
  * <h3>三道省钱闸门（在调模型之前拦下）</h3>
  * <ol>
- *   <li>权限：不是本课堂教师/管理员 → 403，不花钱；</li>
+ *   <li>权限：不是本课堂教师/管理员 → 403，不花钱。
+ *       <b>用的是 {@code requireManageAccess}，不是 {@code requireAccess}</b> ——
+ *       后者自 P9 起对名单内学生开放了，拿它当闸门等于让学生可以直接烧钱；</li>
  *   <li>没记录 → {@code BIZ_SUMMARY_EMPTY}，不花钱；</li>
  *   <li>正在生成中 → {@code BIZ_SUMMARY_RUNNING}，不重复花钱。</li>
  * </ol>
@@ -109,7 +111,10 @@ public class SessionSummaryService {
         SessionRecordService.SessionTexts texts;
         try {
             texts = transactionTemplate.execute(status -> {
-                ClassSession session = recordService.requireAccess(sessionId, userId, role);
+                // ⚠ 必须用更严格的那个：requireAccess 自 P9 起对名单内学生开放了，
+                //   而这里一走下去就是一次**付费**模型调用。
+                //   学生能「读」总结，但不能「生成」总结。
+                ClassSession session = recordService.requireManageAccess(sessionId, userId, role);
 
                 SessionRecordService.SessionTexts collected = recordService.collectTexts(sessionId);
                 if (collected.chatText().isBlank() && collected.qaText().isBlank()) {

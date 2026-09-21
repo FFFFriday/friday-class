@@ -269,6 +269,16 @@ onMounted(load)
             >
               在线名单
             </button>
+            <!-- 已结束的课给「回顾」入口（问题点 9）。
+                 管理员本来就有权限看课堂记录，之前只是**没有任何一条路通向它**，
+                 所以「下课之后看不到」的观感一直存在。 -->
+            <RouterLink
+              v-if="row.status === 'ENDED'"
+              class="ops__btn"
+              :to="{ name: 'session-record', params: { sessionId: row.id } }"
+            >
+              回顾
+            </RouterLink>
           </div>
         </template>
       </FcTable>
@@ -388,6 +398,12 @@ onMounted(load)
 .ops__btn:hover:not(:disabled) {
   background: var(--fc-primary-bg);
 }
+/* 「回顾」是个 <a>（RouterLink），要显式去掉下划线，否则与旁边的按钮不像一套 */
+a.ops__btn {
+  text-decoration: none;
+  cursor: pointer;
+}
+
 .ops__btn--danger {
   color: var(--fc-danger);
 }

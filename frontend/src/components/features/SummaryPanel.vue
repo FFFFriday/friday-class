@@ -7,6 +7,16 @@ import { FcButton, FcEmptyState, FcLoading } from '@/components/base'
 
 const props = defineProps({
   sessionId: { type: [Number, String], required: true },
+  /**
+   * 能不能生成总结。
+   *
+   * <p>默认 true（保持既有调用点行为不变）。学生传 false —— 生成要真的调**付费**模型，
+   * 后端已经用 {@code requireManageAccess} 挡住了（见 {@code SessionSummaryService}），
+   * 这里只是不给他一个点了必然 403 的按钮。
+   *
+   * <p>学生**可以读**已经生成好的总结，所以只藏按钮、不藏正文。
+   */
+  canGenerate: { type: Boolean, default: true },
 })
 
 /** 轮询间隔。一次总结几十秒，3 秒够密了，也不会把接口打爆。 */
@@ -127,7 +137,10 @@ onUnmounted(stopPolling)
           </span>
         </div>
 
+        <!-- 学生看不到这个按钮：生成会调付费模型，后端也不允许。
+             不给一个点了必然 403 的按钮，比给他一个再报错友好 -->
         <FcButton
+          v-if="canGenerate"
           size="sm"
           :variant="status === 'SUCCESS' ? 'secondary' : 'primary'"
           :loading="generating || running"
@@ -137,6 +150,13 @@ onUnmounted(stopPolling)
           {{ running ? '生成中…' : status === 'SUCCESS' ? '重新生成' : '生成总结' }}
         </FcButton>
       </div>
+
+      <!-- 学生视角的说明：否则他会以为「这里本该有按钮但坏了」。
+           注意这里必须用独立的 v-if，不能用 v-else-if ——
+           上面的按钮在另一个 <div> 里，不是它的相邻兄弟节点。 -->
+      <p v-if="!canGenerate && !content" class="summary__hint-line">
+        这节课还没有生成总结。要总结的话，请让老师点一下生成。
+      </p>
 
       <p v-if="error" class="summary__err" role="alert">{{ error }}</p>
 
@@ -238,6 +258,16 @@ onUnmounted(stopPolling)
 
 .summary__hint--running {
   color: var(--fc-primary);
+}
+
+/* 学生视角的说明行，与 chip 式的 .summary__hint 区分开：这是一整句提示 */
+.summary__hint-line {
+  margin: var(--fc-space-2) 0 0;
+  padding: var(--fc-space-3);
+  border-radius: var(--fc-radius);
+  background: var(--fc-bg-muted);
+  font-size: var(--fc-font-sm);
+  color: var(--fc-text-muted);
 }
 
 .summary__err {

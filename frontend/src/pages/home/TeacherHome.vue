@@ -40,7 +40,49 @@ async function load() {
   }
 }
 
-onMounted(load)
+// ── 我的课堂（进行中 + 已结束）─────────────────────────────
+//
+// 这一块同时满足两个需求：
+//   需求 6 —— 老师要能回到自己正在上的课；
+//   需求 9 —— **老师要能回顾已经上完的课**。
+// 后者在加这一块之前是彻底断的：全项目唯一的回顾入口在直播页里，
+// 老师一下课、一离开那个页面，就再也找不回来了。
+//
+// 数据源 /session/taught（含已结束）。不能用 /session/mine ——
+// 那个只返回未结束的，正是「回顾找不到入口」的原因。
+const taught = ref([])
+const taughtLoading = ref(false)
+
+const ACTIVE_STATUS = ['LIVE', 'PAUSED', 'NOT_STARTED']
+
+const activeTaught = computed(() => taught.value.filter((s) => ACTIVE_STATUS.includes(s.status)))
+const endedTaught = computed(() => taught.value.filter((s) => s.status === 'ENDED'))
+/** 首页只展示最近几条，全量留给「班级管理」与后续的课堂列表页 */
+const endedSection = computed(() => endedTaught.value.slice(0, 4))
+
+const STATUS_TEXT = { NOT_STARTED: '未开始', LIVE: '直播中', PAUSED: '已暂停', ENDED: '已结束' }
+
+async function loadTaught() {
+  taughtLoading.value = true
+  try {
+    const data = await http.get('/session/taught')
+    taught.value = data.list || []
+  } catch {
+    // 拿不到就整块不显示，不该让课件区也打不开
+    taught.value = []
+  } finally {
+    taughtLoading.value = false
+  }
+}
+
+function formatTime(value) {
+  return value ? String(value).replace('T', ' ').slice(0, 16) : ''
+}
+
+onMounted(() => {
+  load()
+  loadTaught()
+})
 </script>
 
 <template>
@@ -52,12 +94,47 @@ onMounted(load)
         <div class="banner-actions">
           <router-link class="btn solid" to="/upload">上传课件</router-link>
           <router-link class="btn ghost" to="/courseware">浏览课程中心</router-link>
+          <router-link class="btn ghost" to="/teacher/classes">班级管理</router-link>
         </div>
       </div>
     </section>
 
     <!-- 正在直播：有课在进行时排在最上面，比课件列表更紧急。没有课时整块不渲染 -->
     <LiveSessions />
+
+    <div v-if="loading" class="hint">加载中…</div>
+    <div v-else-if="error" class="hint error-text">{{ error }}</div>
+
+    <!-- ── 我的课堂：正在上的课 + 已结束可回顾的课 ──────────
+         放在课件区之前：「回到我在上的课」比「找一份课件」紧急得多 -->
+    <section v-if="activeTaught.length || endedSection.length" class="section">
+      <header class="section-head">
+        <h2 class="section-title">我的课堂</h2>
+        <router-link class="more" to="/teacher/classes">班级管理 →</router-link>
+      </header>
+
+      <ul class="lessons">
+        <li v-for="s in activeTaught" :key="s.id" class="lesson">
+          <span class="lesson__title">{{ s.title || '未命名课堂' }}</span>
+          <span class="lesson__status lesson__status--live">{{ STATUS_TEXT[s.status] }}</span>
+          <router-link class="btn-mini btn-mini--primary" :to="`/teach/${s.id}`">进入控制台</router-link>
+        </li>
+
+        <li v-for="s in endedSection" :key="s.id" class="lesson">
+          <span class="lesson__title">{{ s.title || '未命名课堂' }}</span>
+          <span class="lesson__meta">{{ formatTime(s.endedAt) }}</span>
+          <span class="lesson__status">{{ STATUS_TEXT[s.status] }}</span>
+          <!-- 这一条就是问题点 9 缺的那个入口：老师不下直播页也能进回顾 -->
+          <router-link class="btn-mini" :to="{ name: 'session-record', params: { sessionId: s.id } }">
+            回顾
+          </router-link>
+        </li>
+      </ul>
+
+      <p v-if="endedTaught.length > endedSection.length" class="lesson__more">
+        还有 {{ endedTaught.length - endedSection.length }} 节已结束的课。
+      </p>
+    </section>
 
     <div v-if="loading" class="hint">加载中…</div>
     <div v-else-if="error" class="hint error-text">{{ error }}</div>
@@ -192,6 +269,83 @@ onMounted(load)
 .link {
   color: #d97757;
   text-decoration: none;
+}
+
+/* ── 我的课堂 ─────────────────────────────────────────────── */
+.lessons {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lesson {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 14px;
+  border: 1px solid #eee;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.lesson__title {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  color: #333;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lesson__meta {
+  font-size: 12px;
+  color: #bbb;
+}
+
+.lesson__status {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: #999;
+}
+
+.lesson__status--live {
+  color: #e74c3c;
+  font-weight: 600;
+}
+
+.lesson__more {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #999;
+}
+
+.btn-mini {
+  flex-shrink: 0;
+  padding: 5px 12px;
+  border: 1px solid #ddd;
+  border-radius: 7px;
+  background: #fff;
+  font-size: 12px;
+  color: #333;
+  text-decoration: none;
+}
+
+.btn-mini:hover {
+  border-color: #d97757;
+  color: #d97757;
+}
+
+.btn-mini--primary {
+  border-color: #d97757;
+  background: #d97757;
+  color: #fff;
+}
+
+.btn-mini--primary:hover {
+  background: #c9694a;
+  color: #fff;
 }
 
 .hint {

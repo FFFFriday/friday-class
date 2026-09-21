@@ -100,6 +100,22 @@ public interface ClassSessionRepository extends JpaRepository<ClassSession, Long
             """)
     List<ClassSession> findMineWithDetail(@Param("teacherId") Long teacherId);
 
+    /**
+     * 某位教师教过的**全部**课堂，含已结束的（教师首页「我的课堂」用）。
+     *
+     * <p>与 {@link #findMineWithDetail} 的区别就是**包含 ENDED**：
+     * 那个是「回到我正在上的课」，这个是「我这学期上过什么、能不能回顾」。
+     * 需求 6（开课选人）与需求 9（课后回顾）都由它支撑。
+     */
+    @Query("""
+            select s from ClassSession s
+            left join fetch s.courseware
+            left join fetch s.teacher
+            where s.teacher.id = :teacherId
+            order by s.id desc
+            """)
+    List<ClassSession> findTaughtWithDetail(@Param("teacherId") Long teacherId);
+
     // ── 管理端（M6） ───────────────────────────────────────────
 
     /**

@@ -1,7 +1,7 @@
 <script setup>
 // 管理端独立布局：左侧导航 + 右侧内容。
 //
-// 为什么不复用 AppLayout 的顶栏：管理端的导航是**五块并列的功能区**，
+// 为什么不复用 AppLayout 的顶栏：管理端的导航是**六块并列的功能区**，
 // 塞进顶栏会挤掉搜索框和账号菜单；而且管理端的操作是破坏性的
 // （删账号、删课件、强制下课），视觉上与前台的「课堂」区隔开更安全——
 // 避免管理员误以为自己在操作自己的账号。
@@ -13,9 +13,12 @@ const auth = useAuthStore()
 const route = useRoute()
 const router = useRouter()
 
+// 「班级管理」排在「账号管理」之后：两者都是「人和组织」，挨着更顺；
+// 课堂管理是「正在发生的事」，排在它们之后。
 const NAV = [
   { name: 'admin-dashboard', label: '概览', path: '/admin' },
   { name: 'admin-users', label: '账号管理', path: '/admin/users' },
+  { name: 'admin-classes', label: '班级管理', path: '/admin/classes' },
   { name: 'admin-sessions', label: '课堂管理', path: '/admin/sessions' },
   { name: 'admin-coursewares', label: '课件与存储', path: '/admin/coursewares' },
   { name: 'admin-audit', label: '审计日志', path: '/admin/audit' },

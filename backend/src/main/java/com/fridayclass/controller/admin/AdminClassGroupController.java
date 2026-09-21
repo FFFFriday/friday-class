@@ -6,6 +6,7 @@ import com.fridayclass.dto.ClassGroupRequest;
 import com.fridayclass.dto.ClassGroupResponse;
 import com.fridayclass.dto.ListResult;
 import com.fridayclass.dto.PageResult;
+import com.fridayclass.dto.SessionResponse;
 import com.fridayclass.dto.StudentCandidateResponse;
 import com.fridayclass.security.UserPrincipal;
 import com.fridayclass.service.AdminAuditService;
@@ -97,6 +98,12 @@ public class AdminClassGroupController {
         auditService.record(principal.getId(), AdminAuditService.CLASS_DELETE,
                 AdminAuditService.TARGET_CLASS_GROUP, id, "删除班级：" + name);
         return ApiResponse.ok(null);
+    }
+
+    @GetMapping("/{id}/sessions")
+    public ApiResponse<ListResult<SessionResponse>> sessions(@PathVariable Long id,
+                                                            @AuthenticationPrincipal UserPrincipal principal) {
+        return ApiResponse.ok(ListResult.of(classGroupService.sessionsOf(id, principal.getId(), true)));
     }
 
     @GetMapping("/{id}/candidates")

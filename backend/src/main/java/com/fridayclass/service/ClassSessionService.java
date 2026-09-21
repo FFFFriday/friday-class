@@ -343,6 +343,21 @@ public class ClassSessionService {
     }
 
     /**
+     * 我教过的全部课堂，**含已结束的**（教师首页「我的课堂」）。
+     *
+     * <p>与 {@link #listMine} 的分工：那个答「回到我正在上的课」，
+     * 这个答「我上过什么、哪些可以回顾」。已结束的课在这里才有入口
+     * —— 在此之前，老师一离开直播页就再也找不到回顾页了（问题点 9 的根因）。
+     */
+    @Transactional(readOnly = true)
+    public List<SessionResponse> listTaught(Long teacherId) {
+        return sessionRepository.findTaughtWithDetail(teacherId)
+                .stream()
+                .map(SessionResponse::from)
+                .toList();
+    }
+
+    /**
      * 下课：置为 {@code ENDED} 并广播。
      *
      * <p>幂等——重复点（或网络重试导致重复请求）不会报错，直接返回当前状态。

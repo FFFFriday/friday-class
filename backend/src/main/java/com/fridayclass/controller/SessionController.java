@@ -73,6 +73,20 @@ public class SessionController {
     }
 
     /**
+     * 我教过的**全部**课堂，含已结束的（教师首页「我的课堂」+ 课后回顾入口）。
+     *
+     * <p>与 {@code /mine} 的分工：{@code /mine} 只给未结束的（「回到我正在上的课」），
+     * 这个给全部（「我上过什么、哪些能回顾」）。需求 6 与需求 9 都要它。
+     *
+     * <p>⚠ 同 {@code /active}，必须声明在 {@link #detail} 之前。
+     */
+    @GetMapping("/taught")
+    @PreAuthorize("hasRole('TEACHER')")
+    public ApiResponse<ListResult<SessionResponse>> taught(@AuthenticationPrincipal UserPrincipal principal) {
+        return ApiResponse.ok(ListResult.of(classSessionService.listTaught(principal.getId())));
+    }
+
+    /**
      * 下课（教师专属，且只能结束自己的课堂）。幂等，重复调用不报错。
      */
     @PostMapping("/{id}/end")
