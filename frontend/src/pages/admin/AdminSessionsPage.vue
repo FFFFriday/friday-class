@@ -3,6 +3,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import http from '@/api/http'
 import { useToast } from '@/composables/useToast'
+import { confirm, prompt } from '@/composables/useConfirm'
 import { FcButton, FcCard, FcLoading, FcModal, FcTable, FcTag } from '@/components/base'
 
 const toast = useToast()
@@ -59,7 +60,10 @@ function goPage(delta) {
 }
 
 async function rowOp(row, action, label, confirmText) {
-  if (confirmText && !window.confirm(confirmText)) return
+  if (confirmText) {
+    const ok = await confirm({ title: label, message: confirmText, confirmText: '确定', danger: true })
+    if (!ok) return
+  }
   busy.value = true
   try {
     await http.post(`/admin/sessions/${row.id}/${action}`)
@@ -79,7 +83,8 @@ async function rowOp(row, action, label, confirmText) {
  * 否则管理员看到「成功」会以为全都生效了。
  */
 async function batch(action, label, confirmText) {
-  if (!window.confirm(confirmText)) return
+  const ok = await confirm({ title: label, message: confirmText, confirmText: '确定', danger: true })
+  if (!ok) return
   busy.value = true
   try {
     const result = await http.post(`/admin/sessions/${action}`)
@@ -119,7 +124,13 @@ async function openOnline(row) {
 }
 
 async function kick(user) {
-  const reason = window.prompt(`把「${user.nickname || user.userId}」移出课堂？\n\n理由（会显示给他看）：`, '管理员移出课堂')
+  const reason = await prompt({
+    title: '移出课堂',
+    message: `把「${user.nickname || user.userId}」移出课堂？\n\n理由会显示给他看。`,
+    inputLabel: '理由',
+    defaultValue: '管理员移出课堂',
+    confirmText: '移出',
+  })
   if (reason === null) return
   try {
     await http.post(`/admin/sessions/${onlineSession.value.id}/kick`, {

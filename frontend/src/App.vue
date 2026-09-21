@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import AppLayout from '@/layouts/AppLayout.vue'
-import { FcToast } from '@/components/base'
+import { FcConfirmHost, FcToast } from '@/components/base'
 
 const route = useRoute()
 const showLayout = computed(() => route.meta.layout !== false)
@@ -23,4 +23,11 @@ const showLayout = computed(() => route.meta.layout !== false)
     （归零、border-box、同一套字体与底色），所以外观零变化。
   -->
   <FcToast />
+
+  <!--
+    全局唯一的确认/输入弹窗出口。和 FcToast 同样放在最外层：
+    它替代了原先散落各页的 window.confirm / window.prompt，
+    必须跨路由常驻，否则路由一切换，还挂着的那个 promise 就永远悬着了。
+  -->
+  <FcConfirmHost />
 </template>

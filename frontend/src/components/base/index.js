@@ -16,6 +16,7 @@
 export { default as FcButton } from './FcButton.vue'
 export { default as FcCard } from './FcCard.vue'
 export { default as FcModal } from './FcModal.vue'
+export { default as FcConfirmHost } from './FcConfirmHost.vue'
 export { default as FcInput } from './FcInput.vue'
 export { default as FcTable } from './FcTable.vue'
 export { default as FcTag } from './FcTag.vue'

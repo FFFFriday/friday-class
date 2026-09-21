@@ -49,12 +49,20 @@ public class StorageScanService {
         this.storageService = storageService;
     }
 
-    /** 占用统计：课件数、幻灯片目录数、各自字节数。 */
+    /**
+     * 占用统计：课件数、幻灯片目录数、各自字节数。
+     *
+     * <p><b>两个数字的口径是分开的，不要混：</b>
+     * {@code coursewareCount} 来自<b>数据库</b>（未删除的课件数，{@code @SQLRestriction} 已过滤）；
+     * {@code slidesDirCount} 数的是<b>磁盘</b>上 {@code storage/slides/} 下的实际目录。
+     * 两者 intentionally 会不一致——正因为不一致才有信息量：差出来的那些就是可回收的垃圾。
+     *
+     * <p>（修复前这里直接返回 {@code referencedSlideDirs.size()}，而那个集合是
+     * 「每个未删除课件一个条目」，于是它恒等于课件数，界面上两格永远是同一个数字。）
+     */
     @Transactional(readOnly = true)
     public StorageOverview overview() {
-        List<Courseware> coursewares = coursewareRepository.findAll();
-        Set<String> referencedFiles = referencedFilePaths(coursewares);
-        Set<String> referencedSlideDirs = referencedSlideDirs(coursewares);
+        long coursewareCount = coursewareRepository.count();
 
         Path root = storageService.root();
 
@@ -75,8 +83,16 @@ public class StorageScanService {
 
         long slidesBytes = 0L;
         long slidesFiles = 0L;
+        long slidesDirs = 0L;
         Path slidesDir = root.resolve(SLIDES_PREFIX);
         if (Files.isDirectory(slidesDir)) {
+            // 目录数：只数 storage/slides/ 的**直接子目录**（每个课件一个），不递归
+            try (Stream<Path> children = Files.list(slidesDir)) {
+                slidesDirs = children.filter(Files::isDirectory).count();
+            } catch (IOException ex) {
+                log.warn("storage_scan_slides_dir_count_failed reason={}", ex.getMessage());
+            }
+
             try (Stream<Path> walk = Files.walk(slidesDir)) {
                 List<Path> files = walk.filter(Files::isRegularFile).toList();
                 slidesFiles = files.size();
@@ -89,8 +105,8 @@ public class StorageScanService {
         }
 
         return new StorageOverview(
-                coursewares.size(),
-                referencedSlideDirs.size(),
+                (int) coursewareCount,
+                (int) slidesDirs,
                 coursewareFiles,
                 slidesFiles,
                 coursewareBytes,

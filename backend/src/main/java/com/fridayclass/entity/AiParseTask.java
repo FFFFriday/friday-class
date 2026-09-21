@@ -16,6 +16,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.NotFound;
+import org.hibernate.annotations.NotFoundAction;
 import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.LocalDateTime;
@@ -34,8 +36,13 @@ public class AiParseTask {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    /**
+     * 待解析的课件。{@code @NotFound(IGNORE)} 理由见 {@link CoursewarePage#getCourseware()}：
+     * 课件软删除后本行会指向一个读不出来的课件，不加注解读取即 500。
+     */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "courseware_id", nullable = false)
+    @NotFound(action = NotFoundAction.IGNORE)
     private Courseware courseware;
 
     @Enumerated(EnumType.STRING)

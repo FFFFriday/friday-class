@@ -1,5 +1,6 @@
 <script setup>
 import { nextTick, ref } from 'vue'
+import { confirm } from '@/composables/useConfirm'
 import { FcButton, FcEmptyState, FcLoading } from '@/components/base'
 
 defineProps({
@@ -35,10 +36,22 @@ function cancelRename() {
   editingId.value = null
 }
 
-function confirmRemove(conversation) {
-  // 删除不可撤销，二次确认。用原生 confirm 而不是自绘弹窗：
-  // 这里不需要额外信息，原生确认框更不容易被误点掉。
-  if (window.confirm(`删除会话「${conversation.title}」？\n\n会话里的问答记录仍会保留在课堂记录中。`)) {
+/**
+ * 删除不可撤销，要二次确认。
+ *
+ * 原先这里用原生 `window.confirm`，理由是「原生更不容易被误点掉」——
+ * 但那个理由站不住：Chrome 在用户勾过「阻止此页面创建更多对话框」之后，
+ * `confirm` 会**静默返回 false 且什么都不显示**，点删除看起来毫无反应。
+ * 现在统一走自绘弹窗（`FcConfirmHost`）：超时自动取消、也能随时手动关掉。
+ */
+async function confirmRemove(conversation) {
+  const ok = await confirm({
+    title: '删除会话',
+    message: `删除会话「${conversation.title}」？\n\n会话里的问答记录仍会保留在课堂记录中。`,
+    confirmText: '删除',
+    danger: true,
+  })
+  if (ok) {
     emit('remove', conversation.id)
   }
 }

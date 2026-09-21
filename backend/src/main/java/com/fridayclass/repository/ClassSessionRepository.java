@@ -28,10 +28,17 @@ public interface ClassSessionRepository extends JpaRepository<ClassSession, Long
      *       {@code LazyInitializationException}，而组装 DTO 要读
      *       {@code courseware.name} 与 {@code teacher.nickname}；</li>
      *   <li>{@code Courseware} 上带 {@code @SQLRestriction("deleted = 0")}，
-     *       课件被软删除时懒加载代理会取不到行、抛
-     *       {@code ObjectRetrievalFailureException}（整个接口 500）。
-     *       用 <b>left</b> join fetch 则退化为关联为 null，DTO 里已做兜底。</li>
+     *       课件被软删除时关联取不到行。依赖 {@code ClassSession.courseware} 上的
+     *       {@code @NotFound(IGNORE)} 退化为 null，DTO 里已做兜底。</li>
      * </ol>
+     *
+     * <p><b>注意「left join fetch 会退化为 null」这句话原本是错的。</b>
+     * 在本仓库 2026-09-22 修复之前，{@code Courseware} 上有 {@code @SQLRestriction}
+     * 而关联上没有 {@code @NotFound}，被过滤掉的行会让 Hibernate 抛
+     * {@code FetchNotFoundException}——{@code left} 与否完全不影响，
+     * 因为异常发生在实体装配阶段，不是 SQL 阶段。
+     * 七个方法都信了这句话，于是都埋着同一颗雷（头一个炸的是 {@code searchForAdmin}，
+     * 也正是管理端两个页面打不开的原因）。
      */
     @Query("""
             select s from ClassSession s

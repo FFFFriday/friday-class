@@ -9,6 +9,7 @@ import { ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import http from '@/api/http'
 import { useAuthStore } from '@/stores/auth'
+import { useUserFormRules } from '@/composables/useUserFormRules'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -17,21 +18,42 @@ const route = useRoute()
 const mode = ref('login') // 'login' | 'register'
 const form = ref({ username: '', password: '', nickname: '' })
 const loading = ref(false)
+/** 服务端返回的整体错误（如「用户名或密码错误」「用户名已存在」）。 */
 const error = ref('')
+
+/**
+ * 字段级校验：哪个框空着就把红字挂在哪一行。
+ * 昵称参与校验但**只查长度**——它是选填的，留空不该标红。
+ */
+const { errors, checkRequired, checkAll, clearAll, clear } = useUserFormRules([
+  'username',
+  'password',
+  'nickname',
+])
 
 const features = ['课前：课件上传与逐页知识点解析', '课中：直播授课与翻页实时同步', '课后：自动生成课程总结']
 
 function switchMode(m) {
   mode.value = m
   error.value = ''
+  // 切页面时清空上一模式的校验结果：否则「登录」留下的红字会跟着进「注册」
+  clearAll()
 }
 
 async function submit() {
   error.value = ''
-  if (!form.value.username || !form.value.password) {
-    error.value = '请输入用户名和密码'
+  clearAll()
+
+  if (mode.value === 'login') {
+    // 登录只查非空。长度规则是注册的账号规则，不该在登录页暴露。
+    // 两个都查完再判断——用 && 短路的话只会标红第一项，用户得试两次。
+    const usernameOk = checkRequired('username', form.value.username, '请输入用户名')
+    const passwordOk = checkRequired('password', form.value.password, '请输入密码')
+    if (!usernameOk || !passwordOk) return
+  } else if (!checkAll(form.value)) {
     return
   }
+
   loading.value = true
   try {
     if (mode.value === 'login') {
@@ -109,10 +131,24 @@ async function submit() {
           </button>
         </div>
 
-        <form @submit.prevent="submit">
+        <!--
+          必填标红：红框 + 下方红字，逐字段显示。
+          输入时（@input）就把该字段的红字清掉——用户已经在改了，旧提示只会碍眼。
+        -->
+        <form @submit.prevent="submit" novalidate>
           <label class="field">
             <span class="label">用户名</span>
-            <input v-model="form.username" placeholder="请输入用户名" autocomplete="username" />
+            <input
+              v-model="form.username"
+              placeholder="请输入用户名"
+              autocomplete="username"
+              :class="{ 'input--error': errors.username }"
+              :aria-invalid="errors.username ? 'true' : undefined"
+              @input="clear('username')"
+            />
+            <span v-if="errors.username" class="field-error" role="alert">
+              {{ errors.username }}
+            </span>
           </label>
 
           <label class="field">
@@ -122,12 +158,27 @@ async function submit() {
               type="password"
               placeholder="请输入密码"
               :autocomplete="mode === 'login' ? 'current-password' : 'new-password'"
+              :class="{ 'input--error': errors.password }"
+              :aria-invalid="errors.password ? 'true' : undefined"
+              @input="clear('password')"
             />
+            <span v-if="errors.password" class="field-error" role="alert">
+              {{ errors.password }}
+            </span>
           </label>
 
           <label v-if="mode === 'register'" class="field">
             <span class="label">昵称（选填）</span>
-            <input v-model="form.nickname" placeholder="同学，怎么称呼？" />
+            <input
+              v-model="form.nickname"
+              placeholder="同学，怎么称呼？"
+              :class="{ 'input--error': errors.nickname }"
+              :aria-invalid="errors.nickname ? 'true' : undefined"
+              @input="clear('nickname')"
+            />
+            <span v-if="errors.nickname" class="field-error" role="alert">
+              {{ errors.nickname }}
+            </span>
           </label>
 
           <p v-if="error" class="error" role="alert">{{ error }}</p>
@@ -280,6 +331,19 @@ form {
 .field input:focus {
   outline: none;
   border-color: #d97757;
+}
+
+/* 必填未过：红框。放在 :focus 之后，聚焦时也保持红——不然用户点回来改，
+   红框消失、反而不知道是哪一项出问题了 */
+.field input.input--error,
+.field input.input--error:focus {
+  border-color: #e74c3c;
+}
+
+.field-error {
+  font-size: 12px;
+  color: #e74c3c;
+  line-height: 1.4;
 }
 
 .error {

@@ -3,6 +3,7 @@
 import { computed, onMounted, ref } from 'vue'
 import http from '@/api/http'
 import { useToast } from '@/composables/useToast'
+import { confirm } from '@/composables/useConfirm'
 import { FcButton, FcCard, FcLoading, FcTable } from '@/components/base'
 
 const toast = useToast()
@@ -65,11 +66,15 @@ function goPage(delta) {
 }
 
 async function removeCourseware(row) {
-  const ok = window.confirm(
-    `删除课件《${row.name}》？\n\n` +
+  const ok = await confirm({
+    title: '删除课件',
+    message:
+      `删除课件《${row.name}》？\n\n` +
       '会同时清理三处：数据库记录、源 .pptx 文件、以及该课件的幻灯片目录。\n' +
       '此操作不可撤销（数据库是软删除，但文件是真的删掉了）。',
-  )
+    confirmText: '删除',
+    danger: true,
+  })
   if (!ok) return
   busy.value = true
   try {
@@ -87,11 +92,15 @@ async function removeCourseware(row) {
 }
 
 async function reparse(row) {
-  const ok = window.confirm(
-    `重新解析《${row.name}》？\n\n` +
+  const ok = await confirm({
+    title: '重新解析课件',
+    message:
+      `重新解析《${row.name}》？\n\n` +
       '这会「真的调用付费大模型」（百页课件约 0.8 元），并且覆盖已有的解析结果。\n' +
       '解析过程中，学生的 AI 助手会暂时收到「课件还在解析中」。',
-  )
+    confirmText: '重新解析',
+    danger: true,
+  })
   if (!ok) return
   busy.value = true
   try {
@@ -132,9 +141,12 @@ function togglePick(path) {
  */
 async function cleanPicked() {
   if (!picked.value.size) return
-  const ok = window.confirm(
-    `清理选中的 ${picked.value.size} 个孤立项？\n\n删除后无法恢复。服务端会再校验一次，已经不是孤立的会被自动跳过。`,
-  )
+  const ok = await confirm({
+    title: '清理孤立文件',
+    message: `清理选中的 ${picked.value.size} 个孤立项？\n\n删除后无法恢复。服务端会再校验一次，已经不是孤立的会被自动跳过。`,
+    confirmText: '清理',
+    danger: true,
+  })
   if (!ok) return
   busy.value = true
   try {
@@ -191,8 +203,15 @@ onMounted(load)
 
     <FcCard padding="none">
       <FcTable :columns="columns" :rows="rows" :loading="loading" empty-text="还没有课件">
+        <!--
+          课件名做成链接：管理员在这个列表里看到课件，十有八九是想点进去看解析进度、
+          知识点或提问，而不是只想读一遍名字。详情页 /courseware/:id 只要求登录、
+          没有角色限制，管理员进得去。
+        -->
         <template #cell-name="{ row }">
-          <span class="name">{{ row.name }}</span>
+          <RouterLink class="name" :to="{ name: 'courseware-detail', params: { id: row.id } }">
+            {{ row.name }}
+          </RouterLink>
         </template>
 
         <template #cell-pageCount="{ row }">
@@ -342,8 +361,15 @@ onMounted(load)
   color: var(--fc-text-faint);
 }
 
+/* 现在是链接，但外观仍是普通文字：只在悬停时给下划线，
+   避免整列变成一片蓝色链接、看起来像导航而不是内容 */
 .name {
   color: var(--fc-text);
+  text-decoration: none;
+}
+.name:hover {
+  color: var(--fc-primary);
+  text-decoration: underline;
 }
 
 .dim {

@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import http from '@/api/http'
+import { confirm } from '@/composables/useConfirm'
 import { useAiParse } from '@/composables/useAiParse'
 import { useClassChat } from '@/composables/useClassChat'
 import { useClassSocket } from '@/composables/useClassSocket'
@@ -144,9 +145,13 @@ const parseBlocking = computed(() => parseStatus.value === null || parseStatus.v
  * 这不是一个能随手点的按钮，所以和「下课」一样要二次确认。
  */
 async function startParse() {
-  const ok = window.confirm(
-    '开始解析后，课件会进入「解析中」状态，全班学生的 AI 助手都会暂时收到「课件还在解析中」，直到解析结束。\n\n确定现在解析吗？',
-  )
+  const ok = await confirm({
+    title: '开始解析课件',
+    message:
+      '开始解析后，课件会进入「解析中」状态，全班学生的 AI 助手都会暂时收到「课件还在解析中」，直到解析结束。\n\n确定现在解析吗？',
+    confirmText: '开始解析',
+    danger: true,
+  })
   if (!ok) return
   await triggerParse()
 }
@@ -205,7 +210,13 @@ async function endClass() {
 
   // 下课不可撤销：学生端会马上看到「已结束」，老师也翻不了页了。
   // 所以必须二次确认，避免手滑把一节正在上的课结掉。
-  if (!window.confirm('确定要下课吗？学生端会立即显示「本节课已结束」，之后无法再翻页。')) {
+  const ok = await confirm({
+    title: '下课',
+    message: '确定要下课吗？学生端会立即显示「本节课已结束」，之后无法再翻页。',
+    confirmText: '下课',
+    danger: true,
+  })
+  if (!ok) {
     return
   }
 

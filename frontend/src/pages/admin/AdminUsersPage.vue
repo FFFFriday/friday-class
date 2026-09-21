@@ -4,6 +4,8 @@ import { onMounted, reactive, ref } from 'vue'
 import http from '@/api/http'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
+import { confirm, prompt } from '@/composables/useConfirm'
+import { useUserFormRules } from '@/composables/useUserFormRules'
 import { FcButton, FcCard, FcEmptyState, FcInput, FcModal, FcTable, FcTag } from '@/components/base'
 
 const auth = useAuthStore()
@@ -70,18 +72,26 @@ function formatTime(value) {
 const createOpen = ref(false)
 const creating = ref(false)
 const form = reactive({ username: '', password: '', role: 'STUDENT', nickname: '' })
+/** 服务端返回的整体错误（如「用户名已存在」）。字段级错误走 `errors`。 */
 const formError = ref('')
+
+/**
+ * 字段级校验：哪个框没填就把红字挂在哪一行，而不是只弹一条笼统提示。
+ * 昵称**不参与必填校验**（后端本来就是可选的），所以只列另外两个字段。
+ */
+const { errors, checkAll, clearAll, clear } = useUserFormRules(['username', 'password', 'nickname'])
 
 function openCreate() {
   Object.assign(form, { username: '', password: '', role: 'STUDENT', nickname: '' })
   formError.value = ''
+  clearAll()
   createOpen.value = true
 }
 
 async function submitCreate() {
   formError.value = ''
-  if (!form.username.trim() || !form.password) {
-    formError.value = '用户名与密码都要填'
+  // 先跑字段校验：用户名、密码各自标红；昵称只查长度，不查空
+  if (!checkAll(form)) {
     return
   }
   creating.value = true
@@ -107,8 +117,14 @@ async function submitCreate() {
 async function toggleDisabled(row) {
   const next = !row.disabled
   const label = next ? '禁用' : '启用'
-  if (next && !window.confirm(`禁用「${row.username}」？\n\n他将立即无法登录（已签发的令牌也会被作废），账号与数据都保留，随时可以启用回来。`)) {
-    return
+  if (next) {
+    const ok = await confirm({
+      title: '禁用账号',
+      message: `禁用「${row.username}」？\n\n他将立即无法登录（已签发的令牌也会被作废），账号与数据都保留，随时可以启用回来。`,
+      confirmText: '禁用',
+      danger: true,
+    })
+    if (!ok) return
   }
   try {
     await http.put(`/admin/users/${row.id}/status`, { disabled: next })
@@ -120,8 +136,16 @@ async function toggleDisabled(row) {
 }
 
 async function resetPassword(row) {
-  const pwd = window.prompt(`给「${row.username}」设置新密码（至少 6 位）：`)
-  if (!pwd) return
+  const pwd = await prompt({
+    title: '重置密码',
+    message: `给「${row.username}」设置新密码。\n重置后该账号已签发的令牌会立即失效，需要重新登录。`,
+    inputLabel: '新密码',
+    placeholder: '至少 6 位',
+    // 与后端 PASSWORD_MIN 一致；不足时留在弹窗里标红，不会静默失败
+    minLength: 6,
+    confirmText: '重置',
+  })
+  if (pwd === null) return
   try {
     await http.put(`/admin/users/${row.id}/password`, { newPassword: pwd })
     toast.success('密码已重置，该账号需要重新登录')
@@ -131,11 +155,14 @@ async function resetPassword(row) {
 }
 
 async function changeRole(row) {
-  const role = window.prompt(
-    `修改「${row.username}」的角色。\n可填：TEACHER / STUDENT / ADMIN\n当前：${row.role}`,
-    row.role,
-  )
-  if (!role || role === row.role) return
+  const role = await prompt({
+    title: '修改角色',
+    message: `修改「${row.username}」的角色。\n可填：TEACHER / STUDENT / ADMIN\n当前：${row.role}`,
+    inputLabel: '角色',
+    defaultValue: row.role,
+    confirmText: '修改',
+  })
+  if (role === null || !role || role === row.role) return
   try {
     await http.put(`/admin/users/${row.id}/role`, { role: role.trim().toUpperCase() })
     toast.success('角色已修改，该账号需要重新登录')
@@ -146,9 +173,13 @@ async function changeRole(row) {
 }
 
 async function removeUser(row) {
-  if (!window.confirm(`删除「${row.username}」？\n\n这是软删除：他的课件、问答与发言记录都会保留，只是不再出现在列表里、也无法登录。`)) {
-    return
-  }
+  const ok = await confirm({
+    title: '删除账号',
+    message: `删除「${row.username}」？\n\n这是软删除：他的课件、问答与发言记录都会保留，只是不再出现在列表里、也无法登录。`,
+    confirmText: '删除',
+    danger: true,
+  })
+  if (!ok) return
   try {
     await http.delete(`/admin/users/${row.id}`)
     toast.success('已删除')
@@ -247,9 +278,34 @@ onMounted(load)
 
     <FcModal v-model="createOpen" title="新建账号" width="420px">
       <div class="form">
-        <FcInput v-model="form.username" label="用户名" placeholder="字母、数字、下划线" />
-        <FcInput v-model="form.password" label="初始密码" type="password" placeholder="至少 6 位" />
-        <FcInput v-model="form.nickname" label="昵称" placeholder="可留空" />
+        <!--
+          :error 绑的是字段级校验结果：用户名、密码为空或长度不对时，
+          红框与红字直接挂在对应那一行，而不是底部一条笼统提示。
+          @update:model-value 里清错——用户已经在改了，旧的红字就该消失了。
+        -->
+        <FcInput
+          v-model="form.username"
+          label="用户名"
+          placeholder="字母、数字、下划线"
+          :error="errors.username"
+          @update:model-value="clear('username')"
+        />
+        <FcInput
+          v-model="form.password"
+          label="初始密码"
+          type="password"
+          placeholder="至少 6 位"
+          :error="errors.password"
+          @update:model-value="clear('password')"
+        />
+        <!-- 昵称是选填的，只查长度，不会因为留空而标红 -->
+        <FcInput
+          v-model="form.nickname"
+          label="昵称"
+          placeholder="可留空"
+          :error="errors.nickname"
+          @update:model-value="clear('nickname')"
+        />
         <label class="form__label">
           角色
           <select v-model="form.role" class="form__select">
@@ -258,6 +314,7 @@ onMounted(load)
             <option value="ADMIN">管理员</option>
           </select>
         </label>
+        <!-- 这里只放服务端返回的错误（如「用户名已存在」），字段级错误在上面各行 -->
         <p v-if="formError" class="form__err" role="alert">{{ formError }}</p>
       </div>
 

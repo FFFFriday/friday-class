@@ -13,6 +13,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.NotFound;
+import org.hibernate.annotations.NotFoundAction;
 import org.hibernate.annotations.SQLRestriction;
 import org.hibernate.annotations.UpdateTimestamp;
 
@@ -47,12 +49,29 @@ public class AiConversation {
     @Column(nullable = false, length = 100)
     private String title = "新会话";
 
-    /** 关联课件，可空（空 = 自由问答，不挂任何课件）。 */
+    /**
+     * 关联课件，可空（空 = 自由问答，不挂任何课件）。
+     *
+     * <p>{@code @NotFound(IGNORE)} 理由见 {@link CoursewarePage#getCourseware()}——
+     * 课件软删除后这行会指向读不出来的课件，而本实体的查询用了
+     * {@code left join fetch c.courseware}，不加注解会抛 {@code FetchNotFoundException}。
+     */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "courseware_id")
+    @NotFound(action = NotFoundAction.IGNORE)
     private Courseware courseware;
 
-    /** 创建时所处的课堂，可空（空 = 课后创建）。 */
+    /**
+     * 创建时所处的课堂，可空（空 = 课后创建）。
+     *
+     * <p><b>这里刻意<b>不</b>加 {@code @NotFound}</b>：{@link ClassSession} 虽然也带
+     * {@code @SQLRestriction}，但全项目<b>没有任何一处</b>软删课堂
+     * （2026-09-22 实测 {@code class_session} 软删行数 = 0，也没有对应的调用代码）。
+     * 加注解会牺牲懒加载代理、带来额外 select，却换不到任何实际收益。
+     * 若将来真的引入「软删课堂」，这里和 {@code ChatMessage#session}、
+     * {@code QaRecord#session}、{@code SessionParticipant#session}、
+     * {@code CourseSummary#session} 必须一起补上。
+     */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "session_id")
     private ClassSession session;

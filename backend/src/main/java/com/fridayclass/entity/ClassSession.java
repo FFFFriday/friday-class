@@ -16,6 +16,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.NotFound;
+import org.hibernate.annotations.NotFoundAction;
 import org.hibernate.annotations.SQLRestriction;
 import org.hibernate.annotations.UpdateTimestamp;
 
@@ -36,8 +38,26 @@ public class ClassSession {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    /**
+     * 授课所用课件。
+     *
+     * <p><b>{@code @NotFound(IGNORE)} 是必需的，不是可选优化。</b>
+     * {@link Courseware} 上带 {@code @SQLRestriction("deleted = 0")}，而课件走的是软删除。
+     * 于是「这节课用的课件被删了」会形成一个**外键有值、但行被过滤掉**的状态。
+     * 没有这个注解时 Hibernate 的判定是「数据坏了」，直接抛
+     * {@code FetchNotFoundException}（join fetch 时）或
+     * {@code ObjectRetrievalFailureException}（访问懒加载代理时），
+     * <b>整个列表接口 500</b>——2026-09-22 管理端「概览」「课堂管理」两页打不开就是这么来的：
+     * 课堂 11 引用了已软删的课件 32，`GET /api/admin/sessions` 全量查询必然踩中。
+     *
+     * <p>加上之后语义变成「取不到就当 null」，与 DTO 层的兜底一致
+     * （{@code SessionResponse.from} 会把课件名显示成「已删除」）。
+     * 注意：这与 {@link User} 上「干脆不加 {@code @SQLRestriction}」是两种不同的解法，
+     * 各自成立——User 是不需要过滤，Courseware 是需要过滤但不能让 join 崩。
+     */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "courseware_id", nullable = false)
+    @NotFound(action = NotFoundAction.IGNORE)
     private Courseware courseware;
 
     @ManyToOne(fetch = FetchType.LAZY)

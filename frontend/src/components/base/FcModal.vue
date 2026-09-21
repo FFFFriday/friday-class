@@ -1,5 +1,5 @@
 <script setup>
-import { onBeforeUnmount, watch } from 'vue'
+import { onBeforeUnmount, ref, watch } from 'vue'
 
 const props = defineProps({
   title: { type: String, default: '' },
@@ -7,12 +7,46 @@ const props = defineProps({
   /** 点遮罩是否关闭。破坏性确认框应传 false，避免误点关掉又以为已确认。 */
   closeOnMask: { type: Boolean, default: true },
   closeOnEsc: { type: Boolean, default: true },
+  /**
+   * 打开后多少毫秒自动关闭；0 = 不自动关（默认）。
+   *
+   * 到点只发 `autoClose` 事件、**不自己关**：超时该解释成什么
+   * （取消？确认？）是调用方的语义，组件不替它决定。
+   * `FcConfirmHost` 把它解释成「取消」——危险操作的超时默认必须是安全的。
+   */
+  autoCloseMs: { type: Number, default: 0 },
 })
+
+const emit = defineEmits(['autoClose'])
 
 const open = defineModel({ type: Boolean, default: false })
 
+/** 本次打开是否已因超时触发过，避免重复 emit。 */
+const autoClosed = ref(false)
+
+let autoCloseTimer = null
+
 function close() {
   open.value = false
+}
+
+function clearAutoClose() {
+  if (autoCloseTimer !== null) {
+    clearTimeout(autoCloseTimer)
+    autoCloseTimer = null
+  }
+}
+
+function startAutoClose() {
+  clearAutoClose()
+  autoClosed.value = false
+  if (props.autoCloseMs > 0) {
+    autoCloseTimer = setTimeout(() => {
+      autoCloseTimer = null
+      autoClosed.value = true
+      emit('autoClose')
+    }, props.autoCloseMs)
+  }
 }
 
 function onMaskClick() {
@@ -36,11 +70,15 @@ function onKeydown(event) {
 function bind() {
   window.addEventListener('keydown', onKeydown)
   document.body.style.overflow = 'hidden'
+  startAutoClose()
 }
 
 function unbind() {
   window.removeEventListener('keydown', onKeydown)
   document.body.style.overflow = ''
+  // 必须清掉：不清的话弹窗关了计时器还在跑，到点对着已关闭的弹窗再发一次事件，
+  // 上层就被多 resolve 一次
+  clearAutoClose()
 }
 
 watch(open, (value) => (value ? bind() : unbind()), { immediate: true })
@@ -68,6 +106,18 @@ onBeforeUnmount(unbind)
         <footer v-if="$slots.footer" class="fc-modal__footer">
           <slot name="footer" />
         </footer>
+
+        <!--
+          倒计时条：让「它会自己关」这件事可见。
+          悄悄自动关闭比不关更让人困惑——用户会以为是自己点错了或没点到。
+          用 CSS 动画而不是 JS 每帧更新剩余宽度：动画在合成器上跑，不占主线程。
+        -->
+        <div
+          v-if="autoCloseMs > 0 && !autoClosed"
+          class="fc-modal__auto-close"
+          :style="{ animationDuration: `${autoCloseMs}ms` }"
+          aria-hidden="true"
+        />
       </div>
     </div>
   </Teleport>
@@ -144,5 +194,38 @@ onBeforeUnmount(unbind)
   gap: var(--fc-space-2);
   padding: var(--fc-space-3) var(--fc-space-4);
   border-top: 1px solid var(--fc-border);
+}
+
+/* 贴在面板底部的倒计时条：从满宽缩到 0 */
+.fc-modal__auto-close {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  border-radius: 0 0 var(--fc-radius-lg) var(--fc-radius-lg);
+  background: var(--fc-text-faint);
+  opacity: 0.55;
+  transform-origin: left center;
+  animation-name: fc-modal-countdown;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+
+@keyframes fc-modal-countdown {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
+/* 尊重「减少动态效果」偏好：不播放缩放动画，留一条静态提示线 */
+@media (prefers-reduced-motion: reduce) {
+  .fc-modal__auto-close {
+    animation: none;
+    opacity: 0.3;
+  }
 }
 </style>

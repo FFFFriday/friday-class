@@ -17,6 +17,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.NotFound;
+import org.hibernate.annotations.NotFoundAction;
 
 import java.time.LocalDateTime;
 
@@ -38,8 +40,13 @@ public class CourseSummary {
     @JoinColumn(name = "session_id", nullable = false, unique = true)
     private ClassSession session;
 
+    /**
+     * 总结所依据的课件。{@code @NotFound(IGNORE)} 理由见 {@link CoursewarePage#getCourseware()}。
+     * 调用方 {@code SessionSummaryService} 已写了 {@code getCourseware() == null} 判空。
+     */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "courseware_id", nullable = false)
+    @NotFound(action = NotFoundAction.IGNORE)
     private Courseware courseware;
 
     @Column(columnDefinition = "TEXT")

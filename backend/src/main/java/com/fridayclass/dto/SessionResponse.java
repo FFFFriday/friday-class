@@ -14,9 +14,16 @@ import java.time.LocalDateTime;
  *
  * <p><b>依赖调用方已 JOIN FETCH 出 courseware 与 teacher</b>：在
  * {@code open-in-view=false} 下，事务外访问懒加载关联会抛 {@code LazyInitializationException}。
- * 更麻烦的是 {@code Courseware} 上带 {@code @SQLRestriction("deleted = 0")}，
- * 若课件被软删除，懒加载代理会取不到行而抛 {@code ObjectRetrievalFailureException}。
- * 所以仓库层用 left join fetch，这里再对 null 做兜底。
+ *
+ * <p>更麻烦的是 {@code Courseware} 上带 {@code @SQLRestriction("deleted = 0")}，
+ * 若课件被软删除，关联就取不到行。两件事<b>都</b>必须成立才能不崩，缺一不可：
+ * <ol>
+ *   <li>仓库层用 <b>left</b> join fetch（不是 inner join）；</li>
+ *   <li>{@code ClassSession.courseware} 上带 {@code @NotFound(IGNORE)} ——
+ *       否则 Hibernate 判定为「数据坏了」，抛 {@code FetchNotFoundException} 而非返回 null。</li>
+ * </ol>
+ * 这里的 null 兜底只有在第 2 条成立时才<b>真正可达</b>：2026-09-22 之前它是一段死代码，
+ * 课件被删时接口直接 500（管理端「概览」「课堂管理」两页就是这么挂的）。
  */
 public record SessionResponse(
         Long id,

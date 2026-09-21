@@ -3,6 +3,7 @@
 import { computed, onMounted, ref } from 'vue'
 import http from '@/api/http'
 import { useToast } from '@/composables/useToast'
+import { confirm } from '@/composables/useConfirm'
 import { FcButton, FcCard, FcLoading } from '@/components/base'
 
 const toast = useToast()
@@ -57,12 +58,16 @@ async function load() {
  * 不写清楚的话，管理员点完发现画面还在，会以为功能坏了，然后反复点。
  */
 async function pauseAll() {
-  const ok = window.confirm(
-    '暂停所有进行中的课堂？\n\n' +
+  const ok = await confirm({
+    title: '暂停所有课堂',
+    message:
+      '暂停所有进行中的课堂？\n\n' +
       '会发生：课堂状态变为「已暂停」，学生端弹出遮罩，讨论区与 AI 提问被禁用。\n' +
       '不会发生：老师的画面与声音「不会被服务端切断」——媒体流是点对点直连的，\n' +
       '需要老师端收到提示后自行停止共享。',
-  )
+    confirmText: '全部暂停',
+    danger: true,
+  })
   if (!ok) return
 
   pausingAll.value = true
