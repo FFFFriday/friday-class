@@ -90,13 +90,38 @@ const formOpen = ref(false)
 const saving = ref(false)
 /** 非空表示当前是「改名」而不是「新建」 */
 const editingId = ref(null)
-const form = reactive({ name: '', description: '' })
+const form = reactive({ name: '', description: '', teacherId: '' })
 const formError = ref('')
+/** 班主任下拉框的红字。与 formError 分开，提示才会挂在字段下面，而不是弹窗底部。 */
+const teacherError = ref('')
+
+// ── 班主任下拉框（仅管理端）──────────────────────────────────
+//
+// 为什么管理端建班**必须**选班主任：管理员没有教师端入口，归属管理员的班
+// 在教师端谁都看不到，等于建了个没人能上课的孤儿班。
+// 后端允许留空（不传则归管理员自己）是为了兼容改造前的调用点，界面上不给这个口子。
+//
+// 教师端**连这个框都不渲染** —— 后端教师端接口用的是不含 teacherId 的
+// ClassGroupRequest，传了也进不来，前端这里只是不去引诱用户做无用功。
+const teachers = ref([])
+
+async function loadTeachers() {
+  try {
+    // 只拉教师角色。/api/admin/users 天然只有管理员调得到。
+    const data = await http.get('/admin/users', { params: { role: 'TEACHER', size: 100 } })
+    teachers.value = data.list || []
+  } catch (e) {
+    // 教师列表拉不到不该让整页挂掉：列表本身还能看，只是建不了班。
+    toast.error(e.message || '教师列表加载失败')
+  }
+}
 
 function openCreate() {
   editingId.value = null
   form.name = ''
   form.description = ''
+  form.teacherId = ''
+  teacherError.value = ''
   formError.value = ''
   formOpen.value = true
 }
@@ -105,25 +130,53 @@ function openEdit(row) {
   editingId.value = row.id
   form.name = row.name
   form.description = row.description || ''
+  // 转成字符串：原生 <select> 的 v-model 值都是字符串，后端要的是数字。
+  // 提交前统一转一次，别把这层转换散到模板里去。
+  form.teacherId = row.teacherId == null ? '' : String(row.teacherId)
+  teacherError.value = ''
   formError.value = ''
   formOpen.value = true
 }
 
 async function submitForm() {
   formError.value = ''
+  teacherError.value = ''
+
+  // 两个错一起报，不玩「修好一个才报下一个」。
+  let ok = true
   if (!form.name.trim()) {
     formError.value = '班级名不能为空'
-    return
+    ok = false
   }
+  if (props.admin && !form.teacherId) {
+    teacherError.value = '请选择班主任'
+    ok = false
+  }
+  if (!ok) return
+
   saving.value = true
   try {
     const body = { name: form.name.trim(), description: form.description.trim() || null }
+    if (props.admin) {
+      // 教师端不传这个字段 —— 后端教师端接口的 DTO 里根本没有它。
+      // 编辑时也照传：后端拿它跟现值比对，没变就不动归属，不会白记一条换班主任。
+      body.teacherId = form.teacherId ? Number(form.teacherId) : null
+    }
     if (editingId.value) {
       await http.put(`${API}/${editingId.value}`, body)
       toast.success('已保存')
     } else {
-      await http.post(API, body)
+      const created = await http.post(API, body)
       toast.success('班级已创建')
+      formOpen.value = false
+      load()
+      // 建完班的下一个动作几乎必然是「加人」，所以直接把他送进去，
+      // 不用他自己再去列表里找这个班、点开详情、再点「＋ 加人」。
+      // ⚠️ 必须先 await openDetail 再 openPicker：openDetail 内部会
+      //    pickerOpen.value = false，提前开会被它关掉。
+      await openDetail(created)
+      openPicker()
+      return
     }
     formOpen.value = false
     load()
@@ -276,7 +329,12 @@ const sessionColumns = [
 
 const STATUS_TEXT = { NOT_STARTED: '未开始', LIVE: '直播中', PAUSED: '已暂停', ENDED: '已结束' }
 
-onMounted(load)
+onMounted(() => {
+  load()
+  if (props.admin) {
+    loadTeachers()
+  }
+})
 </script>
 
 <template>
@@ -359,6 +417,25 @@ onMounted(load)
       <div class="form">
         <FcInput v-model="form.name" label="班级名" placeholder="如：计科 2301 班" />
         <FcInput v-model="form.description" label="备注" placeholder="可留空" />
+
+        <!-- 班主任。只有管理端渲染 —— 换归属是管理员的专属权限，
+             后端也只有 AdminClassGroupRequest 收 teacherId。 -->
+        <label v-if="admin" class="pick">
+          <span class="pick__label">班主任</span>
+          <select
+            v-model="form.teacherId"
+            class="pick__select"
+            :class="{ 'pick__select--error': teacherError }"
+            @change="teacherError = ''"
+          >
+            <option value="">请选择教师…</option>
+            <option v-for="t in teachers" :key="t.id" :value="String(t.id)">
+              {{ t.nickname || t.username }}
+            </option>
+          </select>
+          <span v-if="teacherError" class="pick__error">{{ teacherError }}</span>
+        </label>
+
         <p v-if="formError" class="form__err" role="alert">{{ formError }}</p>
       </div>
       <template #footer>
@@ -559,6 +636,47 @@ onMounted(load)
 .form__err {
   color: var(--fc-danger);
   font-size: var(--fc-font-sm);
+}
+
+/* 班主任下拉框。刻意**不套 FcInput** —— 它是 input 专用，塞不进 select。
+   所以这里贴着 FcInput 的 .fc-field 写：同一套 token、同样 34px 高、
+   同一个 focus 环，两个框摆在一起看不出是两个来源。 */
+.pick {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fc-space-1);
+}
+
+.pick__label {
+  font-size: var(--fc-font-sm);
+  font-weight: var(--fc-weight-medium);
+  color: var(--fc-text-muted);
+}
+
+.pick__select {
+  height: 34px;
+  padding: 0 var(--fc-space-3);
+  border: 1px solid var(--fc-border-strong);
+  border-radius: var(--fc-radius);
+  background: var(--fc-bg-panel);
+  color: var(--fc-text);
+  font-size: var(--fc-font);
+  font-family: inherit;
+}
+
+.pick__select:focus {
+  outline: none;
+  border-color: var(--fc-primary);
+  box-shadow: 0 0 0 3px var(--fc-primary-tint);
+}
+
+.pick__select--error {
+  border-color: var(--fc-danger);
+}
+
+.pick__error {
+  font-size: var(--fc-font-xs);
+  color: var(--fc-danger);
 }
 
 .detail {

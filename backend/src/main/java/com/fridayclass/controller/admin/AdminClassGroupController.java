@@ -2,12 +2,12 @@ package com.fridayclass.controller.admin;
 
 import com.fridayclass.common.ApiResponse;
 import com.fridayclass.dto.ClassGroupMembersRequest;
-import com.fridayclass.dto.ClassGroupRequest;
 import com.fridayclass.dto.ClassGroupResponse;
 import com.fridayclass.dto.ListResult;
 import com.fridayclass.dto.PageResult;
 import com.fridayclass.dto.SessionResponse;
 import com.fridayclass.dto.StudentCandidateResponse;
+import com.fridayclass.dto.admin.AdminClassGroupRequest;
 import com.fridayclass.security.UserPrincipal;
 import com.fridayclass.service.AdminAuditService;
 import com.fridayclass.service.ClassGroupService;
@@ -24,6 +24,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * 管理端班级管理（问题点 8）。
@@ -67,25 +68,50 @@ public class AdminClassGroupController {
         return ApiResponse.ok(classGroupService.detail(id, principal.getId(), true));
     }
 
+    /**
+     * 建班。{@code teacherId} 可空 —— 不传则班主任落成操作的管理员自己（沿用改造前的行为）。
+     *
+     * <p>管理端建班必须能把班直接交给某位老师：否则建出来的班归属管理员，
+     * 而管理员没有教师端入口，那个班就成了没人能上课的孤儿班。
+     */
     @PostMapping
-    public ApiResponse<ClassGroupResponse> create(@Valid @RequestBody ClassGroupRequest request,
+    public ApiResponse<ClassGroupResponse> create(@Valid @RequestBody AdminClassGroupRequest request,
                                                   @AuthenticationPrincipal UserPrincipal principal) {
-        // 管理端建班时「班主任」暂时落成管理员自己；后续可由教师版接口改归属。
-        // 之所以不额外开一个「指定 teacherId」的字段：那需要一套「把班转给谁」的
-        // 完整语义（原班主任怎么办、成员留不留），本次需求里没有，硬做只会做出半成品。
-        ClassGroupResponse created = classGroupService.create(principal.getId(), request);
+        ClassGroupResponse created = classGroupService.createForAdmin(
+                principal.getId(), request.teacherId(), request.toBase());
         auditService.record(principal.getId(), AdminAuditService.CLASS_CREATE,
-                AdminAuditService.TARGET_CLASS_GROUP, created.id(), "新建班级：" + created.name());
+                AdminAuditService.TARGET_CLASS_GROUP, created.id(),
+                "新建班级：" + created.name()
+                        + (request.teacherId() == null
+                        ? "" : "（班主任 " + created.teacherName() + "）"));
         return ApiResponse.ok(created);
     }
 
+    /**
+     * 改班：改名 + <b>可选</b>换班主任。{@code teacherId} 为 null 表示不动归属。
+     *
+     * <p>换归属会额外记一条 {@link AdminAuditService#CLASS_REASSIGN}。
+     * 这里用**教师显示名**比对前后，而不是 id —— 前端下拉框没被动过时两边相等，
+     * 就不会白记一条「更换班主任」污染审计日志。
+     */
     @PutMapping("/{id}")
     public ApiResponse<ClassGroupResponse> update(@PathVariable Long id,
-                                                  @Valid @RequestBody ClassGroupRequest request,
+                                                  @Valid @RequestBody AdminClassGroupRequest request,
                                                   @AuthenticationPrincipal UserPrincipal principal) {
-        ClassGroupResponse updated = classGroupService.update(id, request, principal.getId(), true);
+        String previousTeacher = classGroupService.detail(id, principal.getId(), true).teacherName();
+
+        ClassGroupResponse updated = classGroupService.updateForAdmin(
+                id, request.toBase(), request.teacherId(), principal.getId());
+
         auditService.record(principal.getId(), AdminAuditService.CLASS_UPDATE,
                 AdminAuditService.TARGET_CLASS_GROUP, id, "修改班级：" + updated.name());
+
+        if (request.teacherId() != null
+                && !Objects.equals(previousTeacher, updated.teacherName())) {
+            auditService.record(principal.getId(), AdminAuditService.CLASS_REASSIGN,
+                    AdminAuditService.TARGET_CLASS_GROUP, id,
+                    "更换班主任：" + previousTeacher + " → " + updated.teacherName());
+        }
         return ApiResponse.ok(updated);
     }
 

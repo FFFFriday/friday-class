@@ -207,6 +207,94 @@ public class ClassGroupService {
                 sessionGroupRepository.countByClassGroupId(groupId));
     }
 
+    // ── 管理端专用：指定 / 更换班主任 ──────────────────────────
+    // 教师端**没有**对应入口。这不是暂未开放，是刻意的：
+    // 一个班的归属只有管理员能改（2026-09-22 拍板），
+    // 否则老师 A 可以把班塞给老师 B，出问题没人说得清是谁干的。
+
+    /**
+     * 管理端建班，可指定班主任。
+     *
+     * <p><b>只应由 {@code AdminClassGroupController} 调用</b> —— 它不做归属校验
+     * （建班本来就没有"归属"可校），安全性靠 {@code /api/admin/**} 那条
+     * {@code hasRole("ADMIN")} 规则兜底。教师端建班走 {@link #create(Long, ClassGroupRequest)}。
+     *
+     * @param teacherId 班主任；<b>null 表示归操作的管理员自己</b>（沿用改造前的行为）
+     */
+    @Transactional
+    public ClassGroupResponse createForAdmin(Long operatorId, Long teacherId, ClassGroupRequest request) {
+        Long ownerId = (teacherId == null) ? operatorId : teacherId;
+        User owner = requireTeacher(ownerId);
+
+        ClassGroup group = new ClassGroup();
+        group.setName(request.name().trim());
+        group.setDescription(blankToNull(request.description()));
+        group.setTeacher(owner);
+        group = groupRepository.save(group);
+
+        log.info("class_group_created id={} teacherId={} operatorId={} viaAdmin=true name={}",
+                group.getId(), ownerId, operatorId, group.getName());
+        return ClassGroupResponse.summary(group, 0, 0);
+    }
+
+    /**
+     * 管理端改班：改名 + <b>可选</b>换班主任，同一个事务里完成。
+     *
+     * <p>{@code teacherId} 为 null 表示<b>不动归属</b>（而不是"改成没有班主任"）——
+     * 前端编辑框里没碰那个下拉框时，不该悄悄把归属改掉。
+     *
+     * <h4>换班主任的语义（2026-09-22 Friday 拍板）</h4>
+     *
+     * <ul>
+     *   <li><b>原班主任立刻失去这个班</b> —— {@link #requireOwnedGroup} 判的就是
+     *       {@code teacher_id}，改完他连班级详情都打不开；</li>
+     *   <li><b>学生成员一个不动</b> —— {@code class_group_member} 行完全不受影响。
+     *       换的是「谁管」，不是「谁在班里」；</li>
+     *   <li><b>已经上过的课不动</b> —— 可见性在开课那一刻就快照进
+     *       {@code session_audience} 了，与班级归属无关。所以换老师
+     *       <b>不会让任何学生丢掉历史回顾</b>。这是当初用「快照」而不是
+     *       「实时查班级」的回报，这里不需要为此写任何额外处理。</li>
+     * </ul>
+     *
+     * <p><b>只应由 {@code AdminClassGroupController} 调用</b>，理由同 {@link #createForAdmin}。
+     */
+    @Transactional
+    public ClassGroupResponse updateForAdmin(Long groupId, ClassGroupRequest request,
+                                             Long teacherId, Long operatorId) {
+        ClassGroup group = requireOwnedGroup(groupId, operatorId, true);
+        group.setName(request.name().trim());
+        group.setDescription(blankToNull(request.description()));
+
+        Long oldTeacherId = (group.getTeacher() == null) ? null : group.getTeacher().getId();
+        if (teacherId != null && !teacherId.equals(oldTeacherId)) {
+            group.setTeacher(requireTeacher(teacherId));
+            log.info("class_group_reassigned id={} from={} to={} operatorId={}",
+                    groupId, oldTeacherId, teacherId, operatorId);
+        }
+
+        groupRepository.save(group);
+        log.info("class_group_updated id={} actorId={} admin=true", groupId, operatorId);
+        return ClassGroupResponse.summary(group,
+                memberRepository.countByClassGroupId(groupId),
+                sessionGroupRepository.countByClassGroupId(groupId));
+    }
+
+    /**
+     * 取一个**教师**账号。
+     *
+     * <p>把班指派给学生是没意义的（学生没有教师端入口，进去只会看到一个打不开的班）。
+     * 在这里挡住并给出明确 400，而不是让它悄悄存进去、变成一个谁都管不了的「孤儿班」——
+     * 那种数据出问题时最难查，因为它是"合法写入"的。
+     */
+    private User requireTeacher(Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(404, "用户不存在"));
+        if (user.getRole() != Role.TEACHER) {
+            throw new BusinessException(400, "只能把班级指派给教师账号");
+        }
+        return user;
+    }
+
     /**
      * 删除班级（软删除）。
      *

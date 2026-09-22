@@ -61,6 +61,14 @@ public class AdminAuditService {
     // 反而让「谁动了别人的班」这种真正该被看见的事沉下去。
     public static final String CLASS_CREATE = "CLASS_CREATE";
     public static final String CLASS_UPDATE = "CLASS_UPDATE";
+    /**
+     * 更换班主任（把班从一个教师转给另一个）。
+     *
+     * <p>单独一个动作码，不混进 {@link #CLASS_UPDATE} —— 改名和换归属不是一回事：
+     * 前者只是换个称呼，后者会让一个老师**立刻失去**这个班。
+     * 混在一起的话，出事时得一条条翻「修改班级」的日志才能找出那一次。
+     */
+    public static final String CLASS_REASSIGN = "CLASS_REASSIGN";
     public static final String CLASS_DELETE = "CLASS_DELETE";
     public static final String CLASS_MEMBER_ADD = "CLASS_MEMBER_ADD";
     public static final String CLASS_MEMBER_REMOVE = "CLASS_MEMBER_REMOVE";
