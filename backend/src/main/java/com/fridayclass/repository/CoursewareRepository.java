@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -68,4 +69,46 @@ public interface CoursewareRepository extends JpaRepository<Courseware, Long> {
      */
     @Query("select c from Courseware c left join fetch c.uploader where c.id = :id")
     Optional<Courseware> findDetailById(@Param("id") Long id);
+
+    /**
+     * <b>我上传的</b>课件，新→旧。AI 智能体的课件下拉框用它。
+     *
+     * <h3>为什么不复用门户的 {@link #search}</h3>
+     *
+     * {@code GET /api/courseware} 是<b>门户公开列表</b>——它返回所有人上传的课件
+     * （那是刻意的：公开门户要能看到全部）。拿它当下拉框的数据源，会出现
+     * 「选项里能看到别人的课件，选中后却被 403 挡回来」这种自相矛盾的体验：
+     * 老师只会认为功能坏了，而不会想到「那不是我上传的」。
+     *
+     * <p>下拉框里出现的东西，必须<b>恰好等于</b>他能操作的东西。
+     *
+     * <p>软删除过滤不需要写：{@code Courseware} 上的
+     * {@code @SQLRestriction("deleted = 0")} 会自动追加。
+     */
+    @Query("""
+            select c from Courseware c
+            left join fetch c.uploader
+            where c.uploader.id = :uploaderId
+            order by c.uploadedAt desc, c.id desc
+            """)
+    List<Courseware> findMine(@Param("uploaderId") Long uploaderId);
+
+    /**
+     * 这份课件是不是他上传的？返回 1 / 0。
+     *
+     * <h3>为什么用一条 count 查询，而不是 findById 之后再 getUploader()</h3>
+     *
+     * {@code Courseware.uploader} 是 {@code FetchType.LAZY}。在事务里访问它没问题，
+     * 但「校验归属」这一步会被用在<b>没有事务的地方</b>（比如异步任务提交前），
+     * 那时懒加载会抛 {@code LazyInitializationException}——
+     * 而且报的是「会话已关闭」，跟「这不是你的课件」毫无关系，极难定位。
+     *
+     * <p>写成 count 查询则完全绕开加载：{@code c.uploader.id} 在 JPQL 里
+     * 被优化成直接读外键列，一次 SQL 出结果，<b>不需要事务、不会触发懒加载</b>。
+     *
+     * <p>不用 {@code select count(c) > 0}：部分方言不支持在 select 子句里做比较，
+     * 而「取回 long 再在 Java 里比」在任何方言下都成立。
+     */
+    @Query("select count(c) from Courseware c where c.id = :id and c.uploader.id = :userId")
+    long countOwnedBy(@Param("id") Long id, @Param("userId") Long userId);
 }

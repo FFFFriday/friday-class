@@ -213,4 +213,19 @@ public interface ClassSessionRepository extends JpaRepository<ClassSession, Long
             where s.id in :ids
             """)
     List<ClassSession> findAllWithDetailByIdIn(@Param("ids") Collection<Long> ids);
+
+    /**
+     * 这节课是不是他上的？返回 1 / 0。AI 智能体提交任务前用它验归属。
+     *
+     * <p>理由与 {@code CoursewareRepository#countOwnedBy} 完全相同：
+     * {@code ClassSession.teacher} 是 {@code FetchType.LAZY}，
+     * 而「校验归属」这一步会用在没有事务的地方（异步任务提交之前），
+     * 那时懒加载会抛 {@code LazyInitializationException} ——
+     * 报的还是「会话已关闭」，跟「这不是你的课」毫无关系，极难定位。
+     *
+     * <p>写成 count 查询则完全绕开加载：{@code s.teacher.id} 在 JPQL 里
+     * 被优化成直接读外键列，一条 SQL 出结果。
+     */
+    @Query("select count(s) from ClassSession s where s.id = :id and s.teacher.id = :userId")
+    long countTaughtBy(@Param("id") Long id, @Param("userId") Long userId);
 }

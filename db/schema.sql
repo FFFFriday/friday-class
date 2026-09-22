@@ -14,9 +14,22 @@
 --   · ai_conversation    学生 AI 会话（会话管理与上下文记忆）
 --   · session_participant 课堂参与者（在线名单 / 出席 / 踢人）
 --   · admin_audit_log    管理操作审计日志
---   ⚠ 已有库**不要重跑本文件**（老表是 CREATE TABLE 不带 IF NOT EXISTS，会报错），
---     升级请执行 db/migration/V2__new_features.sql（幂等）。
---     本文件只保证「从零建库」拿到完整结构。
+--
+-- 【V3，2026-09】班级体系 —— 4 张表 + class_session 加 visibility 列：
+--   · class_group / class_group_member / session_class_group / session_audience
+--
+-- 【V4，2026-09】AI 智能体 —— 2 张表：
+--   · ai_generated_file  AI 产出物索引（也是下载接口做 owner 校验的唯一依据）
+--   · ai_agent_run       任务执行记录（轮数、状态、token 用量 —— 让成本可见）
+--
+-- ⚠ 已有库**不要重跑本文件**（老表是 CREATE TABLE 不带 IF NOT EXISTS，会报错），
+--   升级请按顺序执行 db/migration/ 下的 V2 / V3 / V4（都是幂等的）。
+--   本文件只保证「从零建库」拿到完整结构。
+--
+-- ⚠⚠ 本文件曾经落后于 migration 两个版本（一度只有 V1+V2 的 13 张表，
+--   而 README 教人用它建库）—— 后果不是「少个功能」，是**后端起不来**：
+--   AgentRunCleaner 是 ApplicationRunner，启动时要查 ai_agent_run，
+--   表不存在就抛异常、Spring Boot 直接中止。**再改表结构时请同步本文件。**
 -- =============================================================
 
 SET NAMES utf8mb4;
@@ -121,6 +134,9 @@ CREATE TABLE `class_session` (
   `created_at`       DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `updated_at`       DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   `deleted`          TINYINT(1)      NOT NULL DEFAULT 0      COMMENT '软删除标记',
+  -- 【V3 加列】默认 RESTRICTED 是**拒绝优先**：忘了设就是「谁也看不到」这个显眼的 bug，
+  -- 而不是「所有人都能看到」这个沉默的泄漏。与项目既有的安全立场一致。
+  `visibility`       VARCHAR(20)     NOT NULL DEFAULT 'RESTRICTED' COMMENT 'PUBLIC=所有人可见 / RESTRICTED=仅 session_audience 内可见',
   PRIMARY KEY (`id`),
   KEY `idx_session_courseware` (`courseware_id`),
   KEY `idx_session_teacher` (`teacher_id`),
@@ -266,3 +282,121 @@ CREATE TABLE `admin_audit_log` (
   KEY `idx_audit_action` (`action`, `created_at`),
   CONSTRAINT `fk_audit_admin` FOREIGN KEY (`admin_id`) REFERENCES `user` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='管理操作审计日志';
+
+-- =============================================================
+-- 【V3】班级体系（与 db/migration/V3__class_group.sql 等价）
+-- =============================================================
+
+-- 14. 班级
+CREATE TABLE `class_group` (
+  `id`          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '班级ID，主键',
+  `name`        VARCHAR(100)    NOT NULL                COMMENT '班级名（如「计科2301班」）',
+  `teacher_id`  BIGINT UNSIGNED NOT NULL                COMMENT '建班教师（班主任），外键',
+  `description` VARCHAR(255)    NULL                    COMMENT '备注',
+  `deleted`     TINYINT(1)      NOT NULL DEFAULT 0      COMMENT '软删除：1=已删。列表一律带 deleted=0',
+  `created_at`  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_group_teacher` (`teacher_id`),
+  CONSTRAINT `fk_group_teacher` FOREIGN KEY (`teacher_id`) REFERENCES `user` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='班级';
+
+-- 15. 班级成员
+-- ⚠ 唯一键是「班级 + 人」而不是「人」：一个学生可以同时属于多个班。
+CREATE TABLE `class_group_member` (
+  `id`             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `class_group_id` BIGINT UNSIGNED NOT NULL COMMENT '所属班级，外键',
+  `user_id`        BIGINT UNSIGNED NOT NULL COMMENT '成员（学生），外键',
+  `joined_at`      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '加入时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_member_group_user` (`class_group_id`, `user_id`),
+  KEY `idx_member_user` (`user_id`),
+  CONSTRAINT `fk_member_group` FOREIGN KEY (`class_group_id`) REFERENCES `class_group` (`id`),
+  CONSTRAINT `fk_member_user`  FOREIGN KEY (`user_id`)        REFERENCES `user` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='班级成员';
+
+-- 16. 课堂 ↔ 班级（多对多，合班上课用）
+-- ⚠ 不是往 class_session 上加 class_group_id：一节课可能同时面向多个班。
+CREATE TABLE `session_class_group` (
+  `id`             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `session_id`     BIGINT UNSIGNED NOT NULL COMMENT '课堂，外键',
+  `class_group_id` BIGINT UNSIGNED NOT NULL COMMENT '本节课面向的班级，外键',
+  `created_at`     DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_scg_session_group` (`session_id`, `class_group_id`),
+  KEY `idx_scg_group` (`class_group_id`),
+  CONSTRAINT `fk_scg_session` FOREIGN KEY (`session_id`)     REFERENCES `class_session` (`id`),
+  CONSTRAINT `fk_scg_group`   FOREIGN KEY (`class_group_id`) REFERENCES `class_group` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='课堂面向的班级（合班上课用）';
+
+-- 17. 课堂听课名单（开课瞬间的快照）
+-- ⚠ 这是**授权判定的唯一依据**：合班时把各班级成员的并集摊平写进来，唯一键负责去重。
+CREATE TABLE `session_audience` (
+  `id`         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `session_id` BIGINT UNSIGNED NOT NULL COMMENT '所属课堂，外键',
+  `user_id`    BIGINT UNSIGNED NOT NULL COMMENT '被授权听课的学生，外键',
+  `source`     VARCHAR(20)     NOT NULL COMMENT '来源：CLASS(来自班级) / MANUAL(老师单独勾选)',
+  `created_at` DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_audience_session_user` (`session_id`, `user_id`),
+  KEY `idx_audience_user` (`user_id`),
+  CONSTRAINT `fk_audience_session` FOREIGN KEY (`session_id`) REFERENCES `class_session` (`id`),
+  CONSTRAINT `fk_audience_user`    FOREIGN KEY (`user_id`)    REFERENCES `user` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='课堂听课名单（开课快照）';
+
+-- =============================================================
+-- 【V4】AI 智能体（与 db/migration/V4__ai_agent.sql 等价）
+-- =============================================================
+
+-- 18. AI 生成的文件
+--
+-- ⚠ 两张新表都**显式写了 COLLATE=utf8mb4_0900_ai_ci**，与其他表（靠库默认）不同。
+--   原因是这张表的唯一键 uk_aifile_owner_folder_name **依赖「不区分大小写」**：
+--   Java 侧按忽略大小写查重（避免 Windows 上「复习资料.docx / 复习资料.DOCX」撞键报 500），
+--   若排序规则变成 utf8mb4_bin，唯一键会变成区分大小写、而 Java 侧still 不区分 ——
+--   两边口径不一致，且没有任何测试会失败。写出来就不是「看不见的依赖」了。
+CREATE TABLE `ai_generated_file` (
+  `id`            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `owner_id`      BIGINT UNSIGNED NOT NULL              COMMENT '谁生成的（教师/管理员），外键',
+  `folder`        VARCHAR(100)    NOT NULL              COMMENT 'ai-workspace 下的文件夹名（**不是路径**）',
+  `filename`      VARCHAR(200)    NOT NULL              COMMENT '文件名（含扩展名）',
+  `format`        VARCHAR(10)     NOT NULL              COMMENT 'MD / TXT / DOCX / XLSX',
+  `size_bytes`    BIGINT          NOT NULL DEFAULT 0    COMMENT '落盘后的真实字节数',
+  `session_id`    BIGINT UNSIGNED NULL                  COMMENT '生成时的上下文：哪节课（可空）',
+  `courseware_id` BIGINT UNSIGNED NULL                  COMMENT '生成时的上下文：哪份课件（可空）',
+  `prompt`        VARCHAR(1000)   NULL                  COMMENT '老师当时那句指令',
+  `created_at`    DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  -- 【为什么要有 updated_at】重新生成同一个文件走的是**改写同一行**（见 upsert），
+  -- created_at 不变。列表按它倒序的话，刚刚重新生成的文件会停在几天前的位置，
+  -- 老师会以为「没更新成功」。按 updated_at 排才是他要的顺序。
+  `updated_at`    DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_aifile_owner_folder_name` (`owner_id`, `folder`, `filename`),
+  KEY `idx_aifile_owner_updated` (`owner_id`, `updated_at`),
+  KEY `idx_aifile_session` (`session_id`),
+  -- ⚠ 只对 owner 建外键，**不给 session_id / courseware_id 建**：
+  --   后两者是「顺带记下的上下文」，课件可软删、课堂可清理，
+  --   给它们建外键会让「删课件」被历史记录挡住，或把记录级联删掉。
+  CONSTRAINT `fk_aifile_owner` FOREIGN KEY (`owner_id`) REFERENCES `user` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='AI 智能体生成的文件';
+
+-- 19. AI 智能体任务执行记录
+-- 这张表最大的价值是「成本可见」：一眼看到 AI 跑了多少次、烧了多少 token。
+CREATE TABLE `ai_agent_run` (
+  `id`                BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `owner_id`          BIGINT UNSIGNED NOT NULL              COMMENT '发起人，外键',
+  `instruction`       VARCHAR(1000)   NOT NULL              COMMENT '老师那句话',
+  `context_json`      VARCHAR(500)    NULL                  COMMENT '选了哪些课件/课堂/文件夹/格式',
+  `steps`             INT             NOT NULL DEFAULT 0    COMMENT '实际用了几轮工具调用',
+  `status`            VARCHAR(20)     NOT NULL              COMMENT 'RUNNING / SUCCESS / FAILED / LIMIT',
+  `result`            TEXT            NULL                  COMMENT '给老师看的答复正文。前端轮询时读它',
+  `error`             VARCHAR(1000)   NULL                  COMMENT '失败在第几轮、为什么',
+  `prompt_tokens`     INT             NOT NULL DEFAULT 0,
+  `completion_tokens` INT             NOT NULL DEFAULT 0,
+  `elapsed_ms`        BIGINT          NOT NULL DEFAULT 0,
+  `created_at`        DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_airun_owner_created` (`owner_id`, `created_at`),
+  KEY `idx_airun_status` (`status`),
+  CONSTRAINT `fk_airun_owner` FOREIGN KEY (`owner_id`) REFERENCES `user` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='AI 智能体任务执行记录';

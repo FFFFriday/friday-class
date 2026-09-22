@@ -65,6 +65,20 @@ watch(() => route.fullPath, () => {
           <router-link class="nav-link" :class="{ active: isActive('/ai') }" to="/ai">
             AI 助手
           </router-link>
+          <!--
+            AI 智能体：与上面那个「AI 助手」不是一回事。
+            助手是只读的一问一答；智能体会真的去查数据、并往服务器上写文件，
+            所以只给教师与管理员。学生看不到入口，手敲 /agent 也会被路由守卫弹回首页，
+            而真正的墙在后端（/api/agent/** → hasAnyRole('TEACHER','ADMIN')，已实测 403）。
+          -->
+          <router-link
+            v-if="auth.isTeacher || auth.isAdmin"
+            class="nav-link"
+            :class="{ active: isActive('/agent') }"
+            to="/agent"
+          >
+            AI 智能体
+          </router-link>
           <!-- 教师专属。学生看不到入口；就算手敲 /upload 也会被路由守卫和
                后端 @PreAuthorize 两道拦下。 -->
           <router-link v-if="auth.isTeacher" class="nav-link" :class="{ active: isActive('/upload') }" to="/upload">

@@ -1,5 +1,7 @@
 package com.fridayclass.llm;
 
+import java.util.List;
+
 /**
  * 一次模型调用的结果。
  *
@@ -29,7 +31,26 @@ public record LlmResult(
         int maxTokensUsed,
         /** 实际发起的请求次数（含重试）。 */
         int attempts,
-        long elapsedMs) {
+        long elapsedMs,
+        /** 模型要求调用的工具；没有工具调用时是空列表，不是 null。 */
+        List<LlmToolCall> toolCalls) {
+
+    /**
+     * 兼容构造器：不带工具调用。
+     *
+     * <p>问答（F004）/ 解析（F002）/ 总结（M5）三个既有场景都不会用到工具，
+     * 保留这个 8 参构造器，它们的调用点<b>一行都不用改</b>。
+     */
+    public LlmResult(String content, String finishReason, int promptTokens, int completionTokens,
+                     int reasoningTokens, int maxTokensUsed, int attempts, long elapsedMs) {
+        this(content, finishReason, promptTokens, completionTokens, reasoningTokens,
+                maxTokensUsed, attempts, elapsedMs, List.of());
+    }
+
+    /** 兜住 null，让 {@link #toolCalls()} 永远可以直接遍历。 */
+    public LlmResult {
+        toolCalls = (toolCalls == null) ? List.of() : List.copyOf(toolCalls);
+    }
 
     /** 模型输出被截断（预算耗尽，正文没写完）。 */
     public boolean truncated() {
@@ -41,8 +62,21 @@ public record LlmResult(
         return content == null || content.isBlank();
     }
 
-    /** 结果可用：既没截断，也不为空。 */
+    /** 模型这一轮要求调用工具。 */
+    public boolean hasToolCalls() {
+        return !toolCalls.isEmpty();
+    }
+
+    /**
+     * 结果可用。
+     *
+     * <p>⚠ <b>这里的第二个条件是智能体引入的，改动很关键</b>：
+     * 模型决定调用工具时，{@code content} <b>通常就是空字符串</b>
+     * （{@code finish_reason} 是 {@code tool_calls}）——
+     * 这才是智能体最正常的一步。若仍按「正文非空」判定可用，
+     * 每一次工具调用都会被当成失败去重试，六轮循环第一步就废了。
+     */
     public boolean usable() {
-        return !truncated() && !blank();
+        return !truncated() && (!blank() || hasToolCalls());
     }
 }

@@ -106,10 +106,62 @@ public class DeepSeekClient {
      * @throws LlmException 全部尝试都失败；调用方按 {@link LlmException#isRetryable()} 决定文案
      */
     public LlmResult chat(CallKind kind, String systemPrompt, String userPrompt, boolean jsonMode) {
+        List<Map<String, Object>> messages = new ArrayList<>(2);
+        // System 只放角色与硬约束；不可信内容一律走 user 消息里的数据区（见 PromptTemplates）
+        if (systemPrompt != null && !systemPrompt.isBlank()) {
+            messages.add(Map.<String, Object>of("role", "system", "content", systemPrompt));
+        }
+        messages.add(Map.<String, Object>of("role", "user", "content", userPrompt));
+        return execute(kind, messages, null, jsonMode);
+    }
+
+    /**
+     * 带工具的调用（AI 智能体）。除消息与工具外，其余行为与 {@link #chat} <b>完全一致</b>：
+     * 同一套传输层重试、同一套截断升级、同一套用量日志。
+     *
+     * <p><b>为什么让调用方自己拼 messages 而不是传一堆参数</b>：
+     * 智能体的每一轮上下文都是上一轮的产物（assistant 的 tool_calls 消息 + 若干条
+     * tool 结果消息），条数和角色都不固定。硬凑成「一问一答」的参数形状，
+     * 会逼调用方在循环里反复拆装消息数组，反而更容易拼错协议的细节。
+     *
+     * <p>⚠ 本方法<b>固定不开</b> {@code jsonMode}：JSON 模式与 {@code tools}
+     * 是两个互斥的输出约束，同时下发会让模型无所适从。智能体要结构化输出时，
+     * 靠的是工具参数本身，而不是 JSON 模式。
+     *
+     * @param messages 完整的消息数组，元素形如
+     *                 {@code {"role":"user","content":"..."}} 或
+     *                 {@code {"role":"assistant","tool_calls":[...]}} 或
+     *                 {@code {"role":"tool","tool_call_id":"...","content":"..."}}
+     * @param tools    工具定义（OpenAI 兼容格式）；为 null 或空表示不给工具
+     */
+    public LlmResult chatWithTools(CallKind kind, List<Map<String, Object>> messages,
+                                   List<Map<String, Object>> tools) {
+        return execute(kind, messages, tools, false);
+    }
+
+    /**
+     * 真正干活的循环：传输层重试 + 截断升级 + 总预算闸门。
+     *
+     * <p>抽出来是为了让 {@link #chat} 与 {@link #chatWithTools} <b>共享同一份</b>
+     * 失败处理。复制一份出来的话，将来只改了一边的重试策略，
+     * 就会变成「问答会重试、智能体不会」这种极难发现的差异。
+     */
+    private LlmResult execute(CallKind kind, List<Map<String, Object>> messages,
+                              List<Map<String, Object>> tools, boolean jsonMode) {
         int maxTokens = kind.initialMaxTokens();
         long backoffMs = kind.initialBackoffMs();
         long startNanos = System.nanoTime();
         LlmException lastFailure = null;
+
+        // 累计**所有**尝试的用量，含被丢弃的那些。
+        //
+        // ⚠ 不这么做的话，ai_agent_run 记的 token 会系统性偏低：截断升级
+        //   （见下面 canEscalate 那段）恰恰是「HTTP 200、预算烧光、结果作废、
+        //   加大预算重来」—— 被作废那一次的 token 是真花了钱的，却一个字都没记。
+        //   模型越容易截断，这张表就低报得越多，而它存在的意义正是「让成本可见」。
+        int totalPromptTokens = 0;
+        int totalCompletionTokens = 0;
+        int totalReasoningTokens = 0;
 
         for (int attempt = 1; attempt <= kind.maxAttempts(); attempt++) {
             // 总时限闸门。位置很关键：必须**在发起请求之前**判断。
@@ -122,7 +174,7 @@ public class DeepSeekClient {
 
             LlmResult result;
             try {
-                result = callOnce(kind, systemPrompt, userPrompt, maxTokens, jsonMode, attempt);
+                result = callOnce(kind, messages, tools, maxTokens, jsonMode, attempt);
             } catch (LlmException ex) {
                 if (!ex.isRetryable()) {
                     // 401/400/402 这类是配置问题，再试一百次也一样。立刻失败，别白等。
@@ -140,9 +192,15 @@ public class DeepSeekClient {
                 continue;
             }
 
+            totalPromptTokens += result.promptTokens();
+            totalCompletionTokens += result.completionTokens();
+            totalReasoningTokens += result.reasoningTokens();
+
             if (result.usable()) {
-                logUsage(kind, result);
-                return result;
+                LlmResult total = withTotals(result, totalPromptTokens,
+                        totalCompletionTokens, totalReasoningTokens);
+                logUsage(kind, total);
+                return total;
             }
 
             // 不截断却为空 —— 罕见，按可重试处理
@@ -172,10 +230,24 @@ public class DeepSeekClient {
                 : new LlmException(true, LlmException.NO_HTTP_STATUS, "模型调用失败", null);
     }
 
+    /**
+     * 换掉用量字段，其余原样 —— 用于把「多次尝试的累计用量」写回结果。
+     *
+     * <p>{@code attempts} 保持原样（它本来就是这次调用一共发了几次请求），
+     * 只把 token 换成总数。
+     */
+    private static LlmResult withTotals(LlmResult result, int promptTokens,
+                                        int completionTokens, int reasoningTokens) {
+        return new LlmResult(result.content(), result.finishReason(),
+                promptTokens, completionTokens, reasoningTokens,
+                result.maxTokensUsed(), result.attempts(), result.elapsedMs(), result.toolCalls());
+    }
+
     /** 发一次请求。所有失败都翻译成 {@link LlmException}。 */
-    private LlmResult callOnce(CallKind kind, String systemPrompt, String userPrompt,
+    private LlmResult callOnce(CallKind kind, List<Map<String, Object>> messages,
+                               List<Map<String, Object>> tools,
                                int maxTokens, boolean jsonMode, int attempt) {
-        Map<String, Object> body = buildBody(systemPrompt, userPrompt,
+        Map<String, Object> body = buildBody(messages, tools,
                 kind.temperature(), maxTokens, jsonMode);
 
         long started = System.currentTimeMillis();
@@ -203,15 +275,9 @@ public class DeepSeekClient {
         return parseResponse(raw, maxTokens, attempt, elapsedMs);
     }
 
-    private Map<String, Object> buildBody(String systemPrompt, String userPrompt,
+    private Map<String, Object> buildBody(List<Map<String, Object>> messages,
+                                          List<Map<String, Object>> tools,
                                           double temperature, int maxTokens, boolean jsonMode) {
-        List<Map<String, String>> messages = new ArrayList<>(2);
-        // System 只放角色与硬约束；不可信内容一律走 user 消息里的数据区（见 PromptTemplates）
-        if (systemPrompt != null && !systemPrompt.isBlank()) {
-            messages.add(Map.of("role", "system", "content", systemPrompt));
-        }
-        messages.add(Map.of("role", "user", "content", userPrompt));
-
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("model", model);
         body.put("messages", messages);
@@ -219,6 +285,13 @@ public class DeepSeekClient {
         body.put("max_tokens", maxTokens);
         if (jsonMode) {
             body.put("response_format", Map.of("type", "json_object"));
+        }
+        if (tools != null && !tools.isEmpty()) {
+            body.put("tools", tools);
+            // "auto" = 由模型自己决定这一轮调不调工具、调哪个。
+            // 不写死某个函数名是刻意的：智能体的价值就在于它按上下文挑工具，
+            // 写死就把多步循环变成了一次固定调用。
+            body.put("tool_choice", "auto");
         }
         return body;
     }
@@ -256,8 +329,19 @@ public class DeepSeekClient {
         }
 
         JsonNode choice = choices.get(0);
-        String content = choice.path("message").path("content").asText("");
+        JsonNode messageNode = choice.path("message");
+
+        // ⚠ 不能直接 .asText("")：模型决定调工具时，服务端常常下发
+        //   "content": null，而 NullNode.asText() 返回的是字符串 "null"，
+        //   asText(默认值) 也救不回来。那会让正文变成四个字母 "null"、
+        //   blank() 判定为 false —— 用户最终看到回答里赫然一个「null」。
+        //   所以先判 null 再取值。
+        JsonNode contentNode = messageNode.path("content");
+        String content = (contentNode.isMissingNode() || contentNode.isNull())
+                ? "" : contentNode.asText("");
+
         String finishReason = choice.path("finish_reason").asText("");
+        List<LlmToolCall> toolCalls = parseToolCalls(messageNode.path("tool_calls"));
 
         JsonNode usage = root.path("usage");
         int promptTokens = usage.path("prompt_tokens").asInt(0);
@@ -265,7 +349,46 @@ public class DeepSeekClient {
         int reasoningTokens = usage.path("completion_tokens_details").path("reasoning_tokens").asInt(0);
 
         return new LlmResult(content, finishReason, promptTokens, completionTokens,
-                reasoningTokens, maxTokens, attempt, elapsedMs);
+                reasoningTokens, maxTokens, attempt, elapsedMs, toolCalls);
+    }
+
+    /**
+     * 解析 {@code message.tool_calls}。
+     *
+     * <p><b>这里的容错是刻意的，每一处都对应一种「模型犯错」而不是「我们写错」</b>：
+     * 模型偶尔会给出缺函数名、或 JSON 参数被截断的调用。这些都不该让整个六轮循环崩掉——
+     * 正确的处理是把问题<b>当作一次工具结果回给模型</b>，让它自己纠正。
+     * 所以本方法只做「能解析多少算多少」：坏的那一条跳过并记日志，好的照常返回。
+     *
+     * <p>唯一<em>必须</em>补全的是 {@code id}：下一轮要把工具结果按
+     * {@code tool_call_id} 回填，没有 id 就无法配对。缺失时补一个位置化的占位 id，
+     * 保证循环还能继续，而不是在协议层卡死。
+     */
+    private List<LlmToolCall> parseToolCalls(JsonNode toolCallsNode) {
+        if (!toolCallsNode.isArray() || toolCallsNode.isEmpty()) {
+            return List.of();
+        }
+        List<LlmToolCall> calls = new ArrayList<>(toolCallsNode.size());
+        int index = 0;
+        for (JsonNode node : toolCallsNode) {
+            index++;
+            JsonNode functionNode = node.path("function");
+            String name = functionNode.path("name").asText("");
+            if (name.isBlank()) {
+                log.warn("llm_tool_call_without_name raw={}", excerpt(node.toString()));
+                continue;
+            }
+            String id = node.path("id").asText("");
+            if (id.isBlank()) {
+                id = "call_" + index;
+                log.warn("llm_tool_call_without_id name={} synthesizedId={}", name, id);
+            }
+            // arguments 缺失时给 "{}"，让工具按「没传参」处理，而不是抛 NPE。
+            // 注意这里**不解析** JSON —— 见 LlmToolCall 上的说明。
+            String arguments = functionNode.path("arguments").asText("");
+            calls.add(new LlmToolCall(id, name, arguments.isBlank() ? "{}" : arguments));
+        }
+        return calls;
     }
 
     /**

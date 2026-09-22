@@ -55,6 +55,13 @@ app:
     # 这是**兜底**不是优化：防止会话无限增长把模型上下文撑爆。
     # 调大 = 上下文更完整但更贵；0 = 完全不带历史（等价于退回改造前的行为）。
     context-turns: ${AI_CONTEXT_TURNS:6}
+    # 同时进行的 AI 智能体任务数。单独一个池，不与解析/总结共用（理由见 AiExecutorConfig）。
+    # 每个任务会连续调 3~7 次模型，所以这个数直接乘在 token 账单上，默认压得很低。
+    agent-concurrency: ${AI_AGENT_CONCURRENCY:2}
+    # 一次任务最多几轮工具调用。超过就停下并标成 LIMIT（不是静默截断）。
+    # 做成可配置主要是为了**能测**：单元测试用一个上限 2 的实例来构造边界，
+    # 而不必靠真实模型去撞上限 —— 那测的是模型的心情，不是代码。
+    agent-max-steps: ${AI_AGENT_MAX_STEPS:6}
   ws:
     # WebSocket 允许的来源模式（逗号分隔）。默认放行本机任意端口——
     # 不写死端口是刻意的：SecurityConfig 的 CORS 写死了 5173，

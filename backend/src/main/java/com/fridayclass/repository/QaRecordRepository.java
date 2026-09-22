@@ -69,6 +69,27 @@ public interface QaRecordRepository extends JpaRepository<QaRecord, Long> {
             """)
     List<QaRecord> findBySessionWithStudentAndPage(@Param("sessionId") Long sessionId);
 
+    /**
+     * 同上，但<b>限制条数</b>。AI 智能体读课堂记录时用它。
+     *
+     * <p>不加 {@code Pageable} 的那个版本会把整节课的问答（连带学生与页信息）
+     * 一次性拉进内存，再在 Java 里截断 —— 截断是省给模型的，
+     * 数据库那趟该拉多少还是多少。一节课几百条问答时，差别就是几十兆的堆占用。
+     *
+     * <p>{@code join fetch} 配 {@code Pageable} 的注意点：这里两个关联
+     * （student / page）都是 to-one，不是集合，所以不会触发 Hibernate 那条
+     * 「分页查询里 join fetch 集合会被内存分页」的警告，可以放心用。
+     */
+    @Query("""
+            select r from QaRecord r
+            join fetch r.student
+            left join fetch r.page
+            where r.session.id = :sessionId
+            order by r.student.id asc, r.id asc
+            """)
+    List<QaRecord> findBySessionWithStudentAndPage(@Param("sessionId") Long sessionId,
+                                                   Pageable pageable);
+
     /** 某课堂的问答条数（课堂记录概览 + 总结的空记录拦截都用它）。 */
     long countBySessionId(Long sessionId);
 

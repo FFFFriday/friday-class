@@ -73,6 +73,16 @@ public class AdminAuditService {
     public static final String CLASS_MEMBER_ADD = "CLASS_MEMBER_ADD";
     public static final String CLASS_MEMBER_REMOVE = "CLASS_MEMBER_REMOVE";
 
+    // AI 智能体（问题点 2 的第 5 条）。
+    //
+    // 这里**与班级体系的口径不同**，是刻意的：班级那边只有跨教师的操作才记审计，
+    // 而 AI 写文件是**本项目第一个由模型产生副作用的动作**——
+    // 「谁让 AI 写了什么、写到了哪」本身就值得留痕，与是不是管理员无关。
+    // 而且这类操作量很小（一位老师一天生成几个文件），不会把审计日志淹掉。
+    //
+    // 注：任务的 token 用量与轮数记在 ai_agent_run 表，不重复记到这里。
+    public static final String AI_FILE_WRITE = "AI_FILE_WRITE";
+
     // ── 对象类型 ──────────────────────────────────────────────
 
     public static final String TARGET_USER = "USER";
@@ -80,6 +90,7 @@ public class AdminAuditService {
     public static final String TARGET_COURSEWARE = "COURSEWARE";
     public static final String TARGET_STORAGE = "STORAGE";
     public static final String TARGET_CLASS_GROUP = "CLASS_GROUP";
+    public static final String TARGET_AI_FILE = "AI_FILE";
 
     /**
      * 记一笔。

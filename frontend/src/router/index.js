@@ -64,6 +64,20 @@ const routes = [
     meta: { requiresAuth: true, teacherOnly: true, layout: false },
   },
   {
+    // AI 智能体（问题点 2 的第 5 条）：让模型自己去查数据、并往服务器上写文件。
+    //
+    // 与 /ai（纯聊天）是**两个页面**：那边只做一问一答，是只读的；
+    // 这边会让模型产生副作用（写文件），所以限教师与管理员。
+    //
+    // agentOnly 只是前端体验层。**真正的墙在后端**：
+    // SecurityConfig 里 /api/agent/** → hasAnyRole('TEACHER','ADMIN')，
+    // 已实测学生 token 打任何 /api/agent/** 都是 403。
+    path: '/agent',
+    name: 'agent',
+    component: () => import('@/pages/AgentPage.vue'),
+    meta: { requiresAuth: true, agentOnly: true },
+  },
+  {
     // 教师端班级管理（问题点 6）：建班、加人、看这个班开过哪些课。
     // teacherOnly 只是前端体验；后端在 SecurityConfig 上把
     // /api/class-groups/** 限成 TEACHER 或 ADMIN，且 Service 里还会校验
@@ -101,6 +115,17 @@ const routes = [
       { path: 'sessions', name: 'admin-sessions', component: () => import('@/pages/admin/AdminSessionsPage.vue') },
       { path: 'coursewares', name: 'admin-coursewares', component: () => import('@/pages/admin/AdminCoursewarePage.vue') },
       { path: 'audit', name: 'admin-audit', component: () => import('@/pages/admin/AdminAuditPage.vue') },
+      {
+        // 管理员的 AI 智能体入口。
+        //
+        // 刻意做成 /admin 的**子路由**而不是直接链到 /agent：
+        // 链出去的话，管理员点一下整个管理端外壳（左侧导航）就没了，
+        // 想回去还得先找到「返回前台」。两个路径指向同一个组件，
+        // 各自留在自己的布局里 —— 与 /ai 和 /ai/:conversationId 的做法一致。
+        path: 'agent',
+        name: 'admin-agent',
+        component: () => import('@/pages/AgentPage.vue'),
+      },
     ],
   },
   { path: '/profile', name: 'profile', component: () => import('@/pages/ProfilePage.vue'), meta: { requiresAuth: true } },
@@ -143,6 +168,13 @@ router.beforeEach(async (to) => {
     // 管理端路由守卫。注意这里**单独判 isAdmin**，不能用 teacherOnly 那一套：
     // 管理员的角色是 ADMIN，isTeacher 为 false，套用上面那条会把他自己挡在门外。
     if (to.meta.adminOnly && !auth.isAdmin) {
+      return { name: 'home' }
+    }
+
+    // AI 智能体：教师与管理员都能进，学生不能。
+    // 同样不能复用上面两条 —— teacherOnly 会把管理员挡住、adminOnly 会把教师挡住，
+    // 这个坑与 admin 那一条是同一个。
+    if (to.meta.agentOnly && !auth.isTeacher && !auth.isAdmin) {
       return { name: 'home' }
     }
   }

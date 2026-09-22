@@ -115,6 +115,15 @@ public class SecurityConfig {
                         // 前端那条 /admin/** 路由守卫只是体验层，真正的墙在这里。
                         // 配套验证（必做）：用学生 token 调 /api/admin/** 必须返回 403。
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                        // AI 智能体（问题点 2 的第 5 条）：仅教师与管理员。
+                        //
+                        // ⚠ 这一行是智能体的**唯一安全边界**：它能让模型读写服务器文件，
+                        // 漏了它就是「任何登录学生都能让 AI 往服务器上写文件」。
+                        // 前端那条 /agent 路由守卫只是体验层——绕过去只要改一个 localStorage 值。
+                        // 配套验证（必做）：学生 token 打 /api/agent/** 必须返回 403。
+                        //
+                        // 注意顺序：必须放在 /api/admin/** 之后、anyRequest 之前。
+                        .requestMatchers("/api/agent/**").hasAnyRole("TEACHER", "ADMIN")
                         .anyRequest().authenticated())
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint((request, response, authException) ->
