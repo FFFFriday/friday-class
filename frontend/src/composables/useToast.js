@@ -54,7 +54,13 @@ export function showToast(message, type = 'info', duration) {
   }
 
   if (ms > 0) {
-    toast.timer = setTimeout(() => dismiss(id), ms)
+    // ⚠ 这里是 dismissToast，不是 dismiss。
+    // 曾经写成 `dismiss(id)`，而本模块根本没有这个名字的函数（只有 dismissToast，
+    // `useToast()` 返回的对象上才叫 dismiss）。后果不是报错退出，而是**回调里抛
+    // ReferenceError**，于是每条提示都永远不消失，一路堆到同屏上限为止。
+    // 这类「名字差一个字、编译期查不出、只在运行时炸在回调里」的 bug，
+    // 靠构建是抓不到的，只能真点一次界面。
+    toast.timer = setTimeout(() => dismissToast(id), ms)
   }
 
   return id
