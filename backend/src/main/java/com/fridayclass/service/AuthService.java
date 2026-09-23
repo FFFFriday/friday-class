@@ -6,6 +6,7 @@ import com.fridayclass.dto.ChangePasswordRequest;
 import com.fridayclass.dto.LoginRequest;
 import com.fridayclass.dto.RegisterRequest;
 import com.fridayclass.dto.RegisterResponse;
+import com.fridayclass.dto.UpdateProfileRequest;
 import com.fridayclass.dto.UserResponse;
 import com.fridayclass.entity.User;
 import com.fridayclass.enums.Role;
@@ -104,6 +105,21 @@ public class AuthService {
         // 自增令牌版本：改密码后此前签发的所有 JWT 立即失效，需重新登录
         user.setTokenVersion(user.getTokenVersion() + 1);
         userRepository.save(user);
+    }
+
+    /**
+     * 修改个人资料（目前只有昵称）。返回改完之后的用户信息，前端拿它直接刷新登录态。
+     *
+     * <p>与 {@link #changePassword} 的关键差别：这里**刻意不动 tokenVersion**。
+     * 改密码要踢掉此前签发的所有 JWT 是对的（密码变了，旧令牌不该还能用）；
+     * 但改个显示名没有这个必要，跟着一起失效只会让用户改完名字还得重新登录一次。
+     */
+    @Transactional
+    public UserResponse updateProfile(Long userId, UpdateProfileRequest request) {
+        User user = requireUser(userId);
+        // @NotBlank 已经挡掉了纯空白，这里 trim 只是去掉首尾空格
+        user.setNickname(request.nickname().trim());
+        return UserResponse.from(userRepository.save(user));
     }
 
     private User requireUser(Long userId) {

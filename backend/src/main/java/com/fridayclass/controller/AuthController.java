@@ -6,6 +6,7 @@ import com.fridayclass.dto.ChangePasswordRequest;
 import com.fridayclass.dto.LoginRequest;
 import com.fridayclass.dto.RegisterRequest;
 import com.fridayclass.dto.RegisterResponse;
+import com.fridayclass.dto.UpdateProfileRequest;
 import com.fridayclass.dto.UserResponse;
 import com.fridayclass.security.UserPrincipal;
 import com.fridayclass.service.AuthService;
@@ -49,7 +50,20 @@ public class AuthController {
         return ApiResponse.ok(authService.me(principal.getId()));
     }
 
-    /** 修改密码。 */
+    /** 修改个人资料（目前只有昵称，用户名不可改）。返回改完后的用户信息。 */
+    @PutMapping("/profile")
+    public ApiResponse<UserResponse> updateProfile(@AuthenticationPrincipal UserPrincipal principal,
+                                                   @Valid @RequestBody UpdateProfileRequest request) {
+        return ApiResponse.ok(authService.updateProfile(principal.getId(), request));
+    }
+
+    /**
+     * 修改密码。
+     *
+     * <p>仍然要求原密码 —— 前端那个「再次输入新密码」只是防打错，不能替代它。
+     * 去掉原密码校验的话，任何拿到登录态的人（共用电脑没退、令牌被偷）都能直接改密码，
+     * 把账号原主人锁在外面。
+     */
     @PutMapping("/password")
     public ApiResponse<Void> changePassword(@AuthenticationPrincipal UserPrincipal principal,
                                             @Valid @RequestBody ChangePasswordRequest request) {

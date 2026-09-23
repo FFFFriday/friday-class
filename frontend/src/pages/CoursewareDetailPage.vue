@@ -1,14 +1,13 @@
 <script setup>
-import { computed, reactive, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { computed, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import http from '@/api/http'
 import { useAuthStore } from '@/stores/auth'
 import { useAiParse } from '@/composables/useAiParse'
 import { usePromptPack } from '@/composables/usePromptPack'
-import { FcButton, FcEmptyState, FcLoading, FcModal } from '@/components/base'
+import StartClassModal from '@/components/features/StartClassModal.vue'
 
 const route = useRoute()
-const router = useRouter()
 const auth = useAuthStore()
 
 const detail = ref(null)
@@ -27,8 +26,6 @@ const liveSession = ref(null)
  * 老师一退出控制台就再也找不到自己的课了。
  */
 const mySession = ref(null)
-const starting = ref(false)
-const actionError = ref('')
 
 /** 预览图加载失败时回退到纯文字版（见模板里的 @error 分支）。 */
 const previewImageFailed = ref(false)
@@ -87,7 +84,6 @@ async function refreshDetail() {
 async function load() {
   loading.value = true
   error.value = ''
-  actionError.value = ''
   liveSession.value = null
   mySession.value = null
   try {
@@ -153,93 +149,11 @@ const aiEntry = computed(() => ({
   },
 }))
 
-// ── 开课选人（问题点 6）────────────────────────────────────
+// ── 开课（问题点 6）────────────────────────────────────────
 //
-// 点「开始上课」不再是直接建课，而是先问「给谁上」。
-// 为什么必须显式选：缺省若是「公开」，某次忘了选就是把课对所有人开放；
-// 缺省若是「限定」，忘了选就开出一节谁也看不到的课。两种静默失败都不该被允许，
-// 所以没选之前**提交按钮禁用**。真正的校验在后端（ClassSessionService.create）。
+// 「选人 → 建课 → 跳控制台」整套逻辑已抽到 StartClassModal.vue，
+// 因为教师首页要用同一份（那边还多一步「先选课件」）。这里只剩一个开关。
 const startOpen = ref(false)
-const startLoading = ref(false)
-const myGroups = ref([])
-const myStudents = ref([])
-const audience = reactive({ groupIds: [], studentIds: [], isPublic: false })
-
-/** 三选一的禁用条件：公开课，或至少选了一个班/一个学生。 */
-const audienceChosen = computed(
-  () => audience.isPublic || audience.groupIds.length > 0 || audience.studentIds.length > 0,
-)
-
-/** 选了公开课就把班级/学生清掉（后端也互斥，这里让界面不会出现自相矛盾的状态）。 */
-function choosePublic() {
-  audience.isPublic = true
-  audience.groupIds = []
-  audience.studentIds = []
-}
-
-function chooseRestricted() {
-  audience.isPublic = false
-}
-
-function toggleGroup(id) {
-  const next = new Set(audience.groupIds)
-  if (next.has(id)) next.delete(id)
-  else next.add(id)
-  audience.groupIds = [...next]
-  if (audience.groupIds.length) audience.isPublic = false
-}
-
-function toggleStudent(id) {
-  const next = new Set(audience.studentIds)
-  if (next.has(id)) next.delete(id)
-  else next.add(id)
-  audience.studentIds = [...next]
-  if (audience.studentIds.length) audience.isPublic = false
-}
-
-async function openStartClass() {
-  startOpen.value = true
-  startLoading.value = true
-  actionError.value = ''
-  audience.groupIds = []
-  audience.studentIds = []
-  audience.isPublic = false
-  try {
-    // 两个都**可能为空**（新教师还没建过班），不该当成错误
-    const [groups, students] = await Promise.all([
-      http.get('/class-groups/mine'),
-      http.get('/class-groups/my-students'),
-    ])
-    myGroups.value = groups.list || []
-    myStudents.value = students.list || []
-  } catch (e) {
-    actionError.value = e.message || '加载班级失败'
-  } finally {
-    startLoading.value = false
-  }
-}
-
-async function submitStartClass() {
-  if (!audienceChosen.value) return
-  starting.value = true
-  actionError.value = ''
-  try {
-    const body = { coursewareId: currentCoursewareId() }
-    if (audience.isPublic) {
-      body.visibility = 'PUBLIC'
-    } else {
-      if (audience.groupIds.length) body.classGroupIds = audience.groupIds
-      if (audience.studentIds.length) body.studentIds = audience.studentIds
-    }
-    const data = await http.post('/session', body)
-    startOpen.value = false
-    router.push(`/teach/${data.id}`)
-  } catch (e) {
-    actionError.value = e.message || '开课失败'
-  } finally {
-    starting.value = false
-  }
-}
 
 function selectPage(i) {
   current.value = i
@@ -286,10 +200,9 @@ watch(() => route.params.id, load, { immediate: true })
         <button
           v-if="auth.isTeacher && !mySession"
           class="btn primary"
-          :disabled="starting"
-          @click="openStartClass"
+          @click="startOpen = true"
         >
-          {{ starting ? '开课中…' : '开始上课' }}
+          开始上课
         </button>
 
         <!-- 问 AI：教师与学生都能用。教师拿它备课答疑，学生拿它课后追问。 -->
@@ -359,8 +272,6 @@ watch(() => route.params.id, load, { immediate: true })
         </span>
       </div>
     </section>
-
-    <p v-if="actionError" class="banner error" role="alert">{{ actionError }}</p>
 
     <div v-if="loading" class="hint">加载中…</div>
     <div v-else-if="error" class="hint error-text">{{ error }}</div>
@@ -442,92 +353,10 @@ watch(() => route.params.id, load, { immediate: true })
     </div>
 
     <!--
-      开课选人。三种授课对象：选班级（多选=合班上课）、单独勾选同学、公开课。
-      没选之前「开课」按钮禁用 —— 两种静默失败（全公开 / 全看不见）都不该被允许。
-      真正的校验在后端，这里只是别让人点了才被拒。
+      开课弹窗。「选人 → 建课 → 跳控制台」整套逻辑在 StartClassModal.vue 里，
+      教师首页用的是同一个组件。这里把当前课件传进去，就省掉「选课件」那一步。
     -->
-    <FcModal v-model="startOpen" title="给谁上课？" width="560px">
-      <FcLoading v-if="startLoading" />
-
-      <div v-else class="audience">
-        <!-- ① 选班级（可多选）-->
-        <section class="audience__block">
-          <h4 class="audience__title">
-            选择班级
-            <span class="audience__note">选两个以上就是「合班上课」，两班共有的人只算一次</span>
-          </h4>
-          <FcEmptyState
-            v-if="!myGroups.length"
-            title="你还没有班级"
-            description="可以先去「班级管理」建一个，或直接勾选下面的同学。"
-          />
-          <div v-else class="audience__chips">
-            <button
-              v-for="g in myGroups"
-              :key="g.id"
-              type="button"
-              class="chip"
-              :class="{ 'chip--on': audience.groupIds.includes(g.id) }"
-              @click="toggleGroup(g.id)"
-            >
-              {{ g.name }}（{{ g.memberCount }} 人）
-            </button>
-          </div>
-        </section>
-
-        <!-- ② 单独勾选同学 -->
-        <section class="audience__block">
-          <h4 class="audience__title">单独勾选同学</h4>
-          <p class="audience__note">
-            这里只列出你名下班级里的学生 —— 不会把全校学生名单拉出来。
-          </p>
-          <FcEmptyState v-if="!myStudents.length" title="还没有可勾选的学生" />
-          <div v-else class="audience__chips">
-            <button
-              v-for="s in myStudents"
-              :key="s.id"
-              type="button"
-              class="chip"
-              :class="{ 'chip--on': audience.studentIds.includes(s.id) }"
-              @click="toggleStudent(s.id)"
-            >
-              {{ s.nickname || s.username }}
-            </button>
-          </div>
-        </section>
-
-        <!-- ③ 公开课 -->
-        <section class="audience__block">
-          <label class="audience__radio">
-            <input
-              type="radio"
-              name="visibility"
-              :checked="audience.isPublic"
-              @change="choosePublic"
-            />
-            <span>设为公开课（所有学生都能看到，与上面的选择互斥）</span>
-          </label>
-          <label class="audience__radio">
-            <input
-              type="radio"
-              name="visibility"
-              :checked="!audience.isPublic"
-              @change="chooseRestricted"
-            />
-            <span>只给上面选中的班级 / 同学看</span>
-          </label>
-        </section>
-
-        <p v-if="actionError" class="audience__err" role="alert">{{ actionError }}</p>
-      </div>
-
-      <template #footer>
-        <FcButton variant="secondary" @click="startOpen = false">取消</FcButton>
-        <FcButton :loading="starting" :disabled="!audienceChosen" @click="submitStartClass">
-          开始上课
-        </FcButton>
-      </template>
-    </FcModal>
+    <StartClassModal v-model="startOpen" :courseware-id="currentCoursewareId()" />
   </div>
 </template>
 
@@ -619,18 +448,6 @@ watch(() => route.params.id, load, { immediate: true })
   50% {
     opacity: 0.25;
   }
-}
-
-.banner {
-  font-size: 13px;
-  padding: 10px 14px;
-  border-radius: 8px;
-  margin-bottom: 14px;
-}
-
-.banner.error {
-  color: #c0392b;
-  background: #fdf0ee;
 }
 
 /* ── AI 解析面板 ─────────────────────────────────────────────── */
@@ -859,72 +676,4 @@ watch(() => route.params.id, load, { immediate: true })
   color: #e74c3c;
 }
 
-/* ── 开课选人弹窗 ─────────────────────────────────────────── */
-.audience {
-  display: flex;
-  flex-direction: column;
-  gap: var(--fc-space-4);
-}
-
-.audience__block {
-  display: flex;
-  flex-direction: column;
-  gap: var(--fc-space-2);
-}
-
-.audience__title {
-  font-size: var(--fc-font-sm);
-  font-weight: var(--fc-weight-semibold);
-  color: var(--fc-text);
-}
-
-.audience__note {
-  margin-left: var(--fc-space-2);
-  font-size: var(--fc-font-xs);
-  font-weight: normal;
-  color: var(--fc-text-faint);
-}
-
-/* 用可点的小胶囊而不是下拉多选：班级数量通常个位数，
-   一眼看全 + 直接点比「展开下拉 → 勾选 → 收起」快得多 */
-.audience__chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--fc-space-2);
-}
-
-.chip {
-  padding: 4px 10px;
-  border: 1px solid var(--fc-border-strong);
-  border-radius: 999px;
-  background: var(--fc-bg-panel);
-  font-size: var(--fc-font-xs);
-  color: var(--fc-text);
-  cursor: pointer;
-  transition: border-color var(--fc-transition), background var(--fc-transition);
-}
-
-.chip:hover {
-  border-color: var(--fc-primary);
-}
-
-.chip--on {
-  border-color: var(--fc-primary);
-  background: var(--fc-primary-tint);
-  color: var(--fc-primary);
-  font-weight: var(--fc-weight-medium);
-}
-
-.audience__radio {
-  display: flex;
-  align-items: center;
-  gap: var(--fc-space-2);
-  font-size: var(--fc-font-sm);
-  cursor: pointer;
-}
-
-.audience__err {
-  color: var(--fc-danger);
-  font-size: var(--fc-font-sm);
-}
 </style>

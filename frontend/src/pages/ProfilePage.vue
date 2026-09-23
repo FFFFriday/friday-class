@@ -1,44 +1,104 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import http from '@/api/http'
+import { useAuthStore } from '@/stores/auth'
+import { showToast } from '@/composables/useToast'
+
+const auth = useAuthStore()
+const router = useRouter()
 
 const user = ref(null)
-const pwd = ref({ oldPassword: '', newPassword: '' })
-const message = ref('')
-const messageType = ref('success') // 'success' | 'error'
 const loading = ref(false)
 const error = ref('')
-const submitting = ref(false)
+
+/** 角色 → 中文。原来写成 `role === 'TEACHER' ? '教师' : '学生'`，把管理员也显示成「学生」。 */
+const ROLE_TEXT = { TEACHER: '教师', ADMIN: '管理员', STUDENT: '学生' }
+const roleLabel = computed(() => ROLE_TEXT[user.value?.role] || '学生')
+
+// ── 修改名字 ────────────────────────────────────────────────
+// 只能改**昵称**。用户名是登录凭据（JWT 主体 + 唯一索引），后端也不给改。
+const nickname = ref('')
+const savingName = ref(false)
+
+// ── 修改密码 ────────────────────────────────────────────────
+// 三个框：原密码 / 新密码 / 再次输入新密码。
+// 「再次输入」只是防打错，**不能替代原密码** —— 去掉原密码校验的话，
+// 任何拿到登录态的人（共用电脑没退出、令牌被偷）都能直接改密码把原主人锁在外面。
+const pwd = ref({ oldPassword: '', newPassword: '', confirmPassword: '' })
+const savingPwd = ref(false)
+
+/** 两次新密码不一致。只在「再次输入」填了东西时才提示，避免边输边报红。 */
+const pwdMismatch = computed(
+  () => !!pwd.value.confirmPassword && pwd.value.newPassword !== pwd.value.confirmPassword,
+)
+
+function resetPwdFields() {
+  pwd.value = { oldPassword: '', newPassword: '', confirmPassword: '' }
+}
 
 async function load() {
   loading.value = true
   error.value = ''
   try {
     user.value = await http.get('/auth/me')
+    nickname.value = user.value?.nickname || ''
   } catch (e) {
     error.value = e.message || '加载失败'
   } finally {
     loading.value = false
+    // 渲染出现之后显式清一次：浏览器（尤其 Chrome）看到 type=password 的框，
+    // 可能替你自动填上保存过的密码。共用电脑上这既是隐私问题，
+    // 也会让「原密码」看起来像已经写好了 —— 打开页面时它必须是空的。
+    resetPwdFields()
+  }
+}
+
+async function saveName() {
+  const next = nickname.value.trim()
+  if (!next) {
+    showToast('名字不能为空', 'warning')
+    return
+  }
+  savingName.value = true
+  try {
+    const updated = await http.put('/auth/profile', { nickname: next })
+    user.value = updated
+    // 顶栏读的是 store，不刷新它名字不会跟着变。
+    // setSession 是 store 里唯一同时更新内存与 localStorage 的入口，直接复用它。
+    auth.setSession(auth.token, updated)
+    showToast('名字已修改', 'success')
+  } catch (e) {
+    showToast(e.message || '修改失败', 'error')
+  } finally {
+    savingName.value = false
   }
 }
 
 async function changePwd() {
-  if (!pwd.value.oldPassword || !pwd.value.newPassword) {
-    message.value = '请填写完整'
-    messageType.value = 'error'
+  const { oldPassword, newPassword, confirmPassword } = pwd.value
+  if (!oldPassword || !newPassword || !confirmPassword) {
+    showToast('请填写完整', 'warning')
     return
   }
-  submitting.value = true
+  if (newPassword !== confirmPassword) {
+    showToast('两次输入的新密码不一致', 'warning')
+    return
+  }
+  savingPwd.value = true
   try {
-    await http.put('/auth/password', pwd.value)
-    message.value = '密码已修改'
-    messageType.value = 'success'
-    pwd.value = { oldPassword: '', newPassword: '' }
+    await http.put('/auth/password', { oldPassword, newPassword })
+    resetPwdFields()
+    // 后端改密码时会把 token_version +1，而 JwtAuthenticationFilter 会校验这个版本号 ——
+    // **当前这个 JWT 此刻已经失效了**。若留在页面上，之后点任何东西都会被动 401 弹回登录页，
+    // 用户只会觉得「莫名其妙掉线」。所以这里主动说清楚，并直接送他去登录页。
+    showToast('密码已修改，请用新密码重新登录', 'success')
+    auth.logout()
+    router.push({ name: 'login' })
   } catch (e) {
-    message.value = e.message || '修改失败'
-    messageType.value = 'error'
+    showToast(e.message || '修改失败', 'error')
   } finally {
-    submitting.value = false
+    savingPwd.value = false
   }
 }
 
@@ -56,19 +116,64 @@ onMounted(load)
       <div class="card">
         <p v-if="user" class="who">
           <strong>{{ user.nickname || user.username }}</strong>
-          <span class="role">{{ user.role === 'TEACHER' ? '教师' : '学生' }}</span>
+          <span class="role">{{ roleLabel }}</span>
         </p>
-        <p v-if="user" class="meta">用户名：{{ user.username }}</p>
+        <p v-if="user" class="meta">用户名：{{ user.username }}（登录用，不可修改）</p>
+      </div>
+
+      <div class="card">
+        <h2 class="sub">修改名字</h2>
+        <p class="tip">这是显示用的名字，可以随便改，不影响登录。</p>
+        <div class="form">
+          <input
+            v-model="nickname"
+            type="text"
+            maxlength="50"
+            placeholder="你的名字"
+            aria-label="名字"
+          />
+          <button class="btn" :disabled="savingName" @click="saveName">
+            {{ savingName ? '保存中…' : '保存' }}
+          </button>
+        </div>
       </div>
 
       <div class="card">
         <h2 class="sub">修改密码</h2>
         <div class="form">
-          <input v-model="pwd.oldPassword" type="password" placeholder="原密码" />
-          <input v-model="pwd.newPassword" type="password" placeholder="新密码" />
-          <button class="btn" :disabled="submitting" @click="changePwd">确认修改</button>
+          <!--
+            autocomplete 三个框各不相同，不是随手写的：
+            · 原密码用 off —— 它是**已存在**的密码，但我们恰恰要它别被自动填上；
+            · 两个新密码用 new-password —— 告诉浏览器这是一组新密码，
+              它既不会拿旧的来填，也不会多弹「更新密码」的提示。
+          -->
+          <input
+            v-model="pwd.oldPassword"
+            type="password"
+            autocomplete="off"
+            placeholder="原密码"
+            aria-label="原密码"
+          />
+          <input
+            v-model="pwd.newPassword"
+            type="password"
+            autocomplete="new-password"
+            placeholder="新密码（6~64 位）"
+            aria-label="新密码"
+          />
+          <input
+            v-model="pwd.confirmPassword"
+            type="password"
+            autocomplete="new-password"
+            placeholder="再次输入新密码"
+            aria-label="再次输入新密码"
+            :class="{ 'input--bad': pwdMismatch }"
+          />
+          <p v-if="pwdMismatch" class="warn" role="alert">两次输入的新密码不一致</p>
+          <button class="btn" :disabled="savingPwd || pwdMismatch" @click="changePwd">
+            {{ savingPwd ? '提交中…' : '确认修改' }}
+          </button>
         </div>
-        <p v-if="message" class="msg" :class="messageType">{{ message }}</p>
       </div>
     </template>
   </div>
@@ -113,6 +218,11 @@ onMounted(load)
   font-size: 15px;
   margin-bottom: 12px;
 }
+.tip {
+  font-size: 13px;
+  color: #999;
+  margin-bottom: 12px;
+}
 .form {
   display: flex;
   flex-direction: column;
@@ -128,6 +238,14 @@ onMounted(load)
   outline: none;
   border-color: #d97757;
 }
+/* 两次密码不一致时给输入框本身一个红边，比只在下面写一行字更容易被看到 */
+.form input.input--bad {
+  border-color: #e74c3c;
+}
+.warn {
+  font-size: 13px;
+  color: #e74c3c;
+}
 .btn {
   padding: 9px 16px;
   border: none;
@@ -141,16 +259,6 @@ onMounted(load)
 .btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
-}
-.msg {
-  margin-top: 10px;
-  font-size: 13px;
-}
-.msg.success {
-  color: #27ae60;
-}
-.msg.error {
-  color: #e74c3c;
 }
 .empty {
   color: #999;

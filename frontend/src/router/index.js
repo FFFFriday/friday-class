@@ -88,6 +88,17 @@ const routes = [
     meta: { requiresAuth: true, teacherOnly: true },
   },
   {
+    // 课堂记录列表（修改文档3）：教师自己上过的**全部**课堂，含已结束的。
+    // 教师首页的「课堂记录」栏只放最近 4 条，右上角「全部记录」跳到这。
+    // 数据源是 /api/session/taught —— 它本来就返回含已结束的全部
+    // （/session/mine 只返回未结束的，用它这个页面会永远是空的）。
+    // teacherOnly 只是前端体验；真正的边界在后端那条接口的 @PreAuthorize。
+    path: '/teacher/records',
+    name: 'teacher-records',
+    component: () => import('@/pages/TeacherRecordsPage.vue'),
+    meta: { requiresAuth: true, teacherOnly: true },
+  },
+  {
     // 课堂记录：发言时间线 + 分学生 AI 问答 + 课后总结。
     // 权限是「本课堂的授课教师、任意管理员，或**这节课名单内的学生**」。
     // 学生能看到讨论区与参与名单，但 record/qa 只返回他自己的提问。

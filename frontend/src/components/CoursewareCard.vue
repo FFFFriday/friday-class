@@ -1,9 +1,20 @@
 <script setup>
-// 课件卡片。教师首页、学生首页、课程中心三处共用。
+// 课件卡片。教师首页、学生首页、课件中心三处共用。
 //
 // 没有课件封面图（后端不产出缩略图，也不打算为 MVP 引入图片资源），
 // 所以封面区用品牌色调的色块 + 课件名前几个字顶上，靠排版撑出「课程卡片」的观感，
 // 而不是留一个空框或灰色占位图。
+//
+// ── 关于卡片结构 ─────────────────────────────────────────────
+// 卡片**不是**一个包住全部内容的大 <a>，而是「链接主体 + 底部操作区」两段。
+// 原因：HTML 规定 <a> 不能内嵌交互元素（<button> / 另一个 <a>），
+// 而「我的课件」的卡片右下角要放一个「上课」按钮。硬塞进去虽然浏览器能渲染，
+// 但属于非法结构，屏幕阅读器与键盘 Tab 顺序都会出问题。
+//
+// 操作区由调用方通过 `action` 插槽填：
+//   - 传了插槽 → 底部多出一行（教师首页「我的课件」）
+//   - 不传     → 完全不渲染（课件中心、学生首页保持原样）
+// 按钮在链接之外，所以点它不会连带触发卡片跳转，调用方也不必写 @click.stop。
 import { computed } from 'vue'
 
 const props = defineProps({
@@ -37,21 +48,28 @@ const uploadedDate = computed(() => {
 </script>
 
 <template>
-  <router-link class="cw-card" :to="`/courseware/${courseware.id}`">
-    <div class="cover">
-      <span class="cover-text">{{ coverText }}</span>
-      <span class="status-pill" :class="statusClass">{{ statusLabel }}</span>
+  <div class="cw-card">
+    <router-link class="cw-card__link" :to="`/courseware/${courseware.id}`">
+      <div class="cover">
+        <span class="cover-text">{{ coverText }}</span>
+        <span class="status-pill" :class="statusClass">{{ statusLabel }}</span>
+      </div>
+      <div class="body">
+        <h3 class="name" :title="courseware.name">{{ courseware.name }}</h3>
+        <p class="meta">
+          <span>{{ courseware.uploaderName || '未知上传者' }}</span>
+          <span class="dot">·</span>
+          <span>{{ courseware.pageCount ?? 0 }} 页</span>
+        </p>
+        <p v-if="uploadedDate" class="date">{{ uploadedDate }}</p>
+      </div>
+    </router-link>
+
+    <!-- 底部操作区（可选）。见文件头注释：必须留在链接外面。 -->
+    <div v-if="$slots.action" class="actions">
+      <slot name="action" />
     </div>
-    <div class="body">
-      <h3 class="name" :title="courseware.name">{{ courseware.name }}</h3>
-      <p class="meta">
-        <span>{{ courseware.uploaderName || '未知上传者' }}</span>
-        <span class="dot">·</span>
-        <span>{{ courseware.pageCount ?? 0 }} 页</span>
-      </p>
-      <p v-if="uploadedDate" class="date">{{ uploadedDate }}</p>
-    </div>
-  </router-link>
+  </div>
 </template>
 
 <style scoped>
@@ -62,14 +80,21 @@ const uploadedDate = computed(() => {
   border: 1px solid #eee;
   border-radius: 10px;
   overflow: hidden;
-  text-decoration: none;
-  color: inherit;
   transition: box-shadow 0.18s ease, transform 0.18s ease;
 }
 
 .cw-card:hover {
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.09);
   transform: translateY(-2px);
+}
+
+/* 链接主体撑满卡片，卡片高度由 .body 的 flex:1 拉齐（一行卡片高度整齐） */
+.cw-card__link {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  text-decoration: none;
+  color: inherit;
 }
 
 .cover {
@@ -111,6 +136,7 @@ const uploadedDate = computed(() => {
 }
 
 .body {
+  flex: 1;
   padding: 12px 14px 14px;
   display: flex;
   flex-direction: column;
@@ -140,5 +166,14 @@ const uploadedDate = computed(() => {
 .date {
   font-size: 12px;
   color: #bbb;
+}
+
+/* 底部操作区。只在调用方传了 action 插槽时渲染，所以默认的课件中心/学生首页
+   卡片外观完全不变。 */
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 0 14px 14px;
 }
 </style>

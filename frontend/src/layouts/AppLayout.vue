@@ -5,13 +5,39 @@
 //   1. 第一个菜单写着「门户」，业务上其实就是首页；
 //   2. isLoggedIn 是 setup 里读一次 localStorage 的普通常量，非响应式；
 //   3. 菜单写死，「上传课件」和「账户中心」不分角色全都显示。
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
 const route = useRoute()
 const router = useRouter()
+
+// 顶栏菜单。改成**数据驱动**（照 AdminLayout.vue:18 的 NAV 写法）：
+// 以后改名、增删项、调可见角色，都只动这一个数组，模板不用碰。
+//
+// ⚠️「AI 问答」与「AI 助手」是两个不同的页面，别混：
+//   AI 问答 /ai     —— 只读的一问一答，教师和学生都能用；
+//   AI 助手 /agent  —— 会真去查数据、往服务器写文件的智能体，只给教师与管理员。
+//                      学生看不到入口，手敲 /agent 会被路由守卫弹回首页，
+//                      真正的墙在后端（/api/agent/** → hasAnyRole('TEACHER','ADMIN')）。
+//
+// 注意这里**没有**「上传课件」：按修改文档3 从顶栏删掉了。
+// 但 /upload 这个路由和上传页都还在——首页大卡片的「上传课件」按钮要跳它。
+const NAV = [
+  { label: '首页', path: '/', roles: null },
+  { label: '课件中心', path: '/courseware', roles: null },
+  { label: 'AI 问答', path: '/ai', roles: null },
+  { label: 'AI 助手', path: '/agent', roles: ['TEACHER', 'ADMIN'] },
+  // 管理端入口只对管理员显示。学生/教师手敲 /admin 会被路由守卫弹回首页，
+  // 真正的墙在后端（/api/admin/** → hasRole('ADMIN')）。
+  { label: '管理端', path: '/admin', roles: ['ADMIN'] },
+]
+
+/** roles 为 null = 所有人可见；否则按 auth.role 过滤。 */
+const visibleNav = computed(() =>
+  NAV.filter((item) => !item.roles || item.roles.includes(auth.role)),
+)
 
 const keyword = ref('')
 const menuOpen = ref(false)
@@ -54,40 +80,14 @@ watch(() => route.fullPath, () => {
         <router-link class="brand" to="/">周五课堂</router-link>
 
         <nav class="nav">
-          <router-link class="nav-link" :class="{ active: isActive('/') }" to="/">首页</router-link>
-          <router-link class="nav-link" :class="{ active: isActive('/courseware') }" to="/courseware">
-            课程中心
-          </router-link>
-          <!--
-            AI 助手：教师和学生都能进。
-            它是长期会话（可跨课、可课后使用），与课堂里那个「就当前页提问」的面板不是一回事。
-          -->
-          <router-link class="nav-link" :class="{ active: isActive('/ai') }" to="/ai">
-            AI 助手
-          </router-link>
-          <!--
-            AI 智能体：与上面那个「AI 助手」不是一回事。
-            助手是只读的一问一答；智能体会真的去查数据、并往服务器上写文件，
-            所以只给教师与管理员。学生看不到入口，手敲 /agent 也会被路由守卫弹回首页，
-            而真正的墙在后端（/api/agent/** → hasAnyRole('TEACHER','ADMIN')，已实测 403）。
-          -->
           <router-link
-            v-if="auth.isTeacher || auth.isAdmin"
+            v-for="item in visibleNav"
+            :key="item.path"
             class="nav-link"
-            :class="{ active: isActive('/agent') }"
-            to="/agent"
+            :class="{ active: isActive(item.path) }"
+            :to="item.path"
           >
-            AI 智能体
-          </router-link>
-          <!-- 教师专属。学生看不到入口；就算手敲 /upload 也会被路由守卫和
-               后端 @PreAuthorize 两道拦下。 -->
-          <router-link v-if="auth.isTeacher" class="nav-link" :class="{ active: isActive('/upload') }" to="/upload">
-            上传课件
-          </router-link>
-          <!-- 管理端入口只对管理员显示。学生/教师就算手敲 /admin 也会被路由守卫弹回首页，
-               而真正的墙在后端（/api/admin/** → hasRole('ADMIN')，已实测 403）。 -->
-          <router-link v-if="auth.isAdmin" class="nav-link" :class="{ active: isActive('/admin') }" to="/admin">
-            管理端
+            {{ item.label }}
           </router-link>
         </nav>
 
@@ -120,7 +120,7 @@ watch(() => route.fullPath, () => {
           <div v-if="menuOpen" class="backdrop" @click="closeMenu" />
           <div v-if="menuOpen" id="account-menu" class="menu" role="menu">
             <div class="menu-head">
-              <p class="menu-name">{{ auth.displayName }}</p>
+              <p class="menu-name">你好，{{ auth.displayName }}</p>
               <p class="menu-role">{{ auth.roleText }}</p>
             </div>
             <router-link class="menu-item" role="menuitem" to="/profile">账户中心</router-link>
@@ -176,6 +176,8 @@ watch(() => route.fullPath, () => {
 .nav {
   display: flex;
   gap: 4px;
+  /* 菜单项永远不参与收缩：宁可让搜索框先让位，也不能把导航挤变形 */
+  flex-shrink: 0;
 }
 
 .nav-link {
@@ -184,6 +186,9 @@ watch(() => route.fullPath, () => {
   font-size: 14px;
   color: #555;
   text-decoration: none;
+  /* 不折行。默认的 white-space:normal 在窄屏下会把「课件中心」断成
+     「课件中 / 心」—— 菜单项本来就只有两三个字，断在哪一行都很难看。 */
+  white-space: nowrap;
   transition: color 0.15s, background 0.15s;
 }
 
@@ -337,8 +342,10 @@ watch(() => route.fullPath, () => {
   padding: 30px 24px 70px;
 }
 
-/* 窄屏先牺牲搜索框，导航和账号是主功能 */
-@media (max-width: 820px) {
+/* 窄屏先牺牲搜索框，导航和账号是主功能。
+   阈值从 820 提到 960：菜单项加上搜索框 (200px) 在 820~960 这一段
+   会把导航挤到折行，让搜索框提前让位就没这个问题。 */
+@media (max-width: 960px) {
   .search,
   .who,
   .caret {
