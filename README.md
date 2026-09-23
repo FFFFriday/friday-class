@@ -17,7 +17,7 @@
 | 位置 | 内容 |
 |---|---|
 | `backend/src/main/java/com/fridayclass/llm/` | **大模型接入层（6 个类）**。`DeepSeekClient` 是 HTTP 客户端（含原生工具调用），`PromptTemplates` 集中存放全部提示词，另有 `CallKind` / `LlmResult` / `LlmToolCall` / `LlmException` |
-| `backend/src/main/java/com/fridayclass/service/agent/` | **AI 智能体（24 个类）**。`AgentLoop` 是多步推理主循环，另有 `AgentTaskService`、`AgentToolRegistry`、`WorkspacePathSandbox`、`WorkspaceFileService`；子包 `tool/` 是 6 类工具，`export/` 是 8 个导出器（Word / Excel / Markdown / 纯文本） |
+| `backend/src/main/java/com/fridayclass/service/agent/` | **AI 智能体（24 个类）**。`AgentLoop` 是多步推理主循环（`调模型 → 执行工具 → 结果回填 → 再调模型`，循环上限由 `app.ai.agent-max-steps` 控制，默认 **6**），另有 `AgentTaskService`、`AgentToolRegistry`、`WorkspacePathSandbox`、`WorkspaceFileService`；子包 `tool/` 是 **4 个工具**（`get_courseware_content` 读课件页、`get_class_records` 取课堂记录、`files` 读写工作区文件、`write_file` 产出文件），`export/` 是 **4 个导出器**（Word / Excel / Markdown 直通 / 纯文本） |
 | `backend/src/main/java/com/fridayclass/dto/agent/` | 智能体的请求与响应模型（4 个类） |
 | `backend/src/main/java/com/fridayclass/service/` （直接放在这里） | 6 个 AI 相关服务：`AiParseService`（课件解析）、`QaService`（学生问答）、`AiConversationService`（会话管理）、`ChatService`（讨论区）、`PromptPackService`（按页下发提示词包）、`SessionSummaryService`（课后总结） |
 | `backend/src/main/java/com/fridayclass/entity/` · `repository/` | 7 张 AI 相关表的实体与仓储：`ai_parse_task`、`ai_conversation`、`qa_record`、`knowledge_point`、`preset_question`、`ai_generated_file`、`ai_agent_run` |
