@@ -184,7 +184,7 @@ onMounted(async () => {
 
     <section class="ai__main">
       <header class="ai__head">
-        <h1 class="ai__title">{{ activeConversation?.title || 'AI 助手' }}</h1>
+        <h1 class="ai__title">{{ activeConversation?.title || 'AI 问答' }}</h1>
         <div class="ai__tags">
           <FcTag v-if="pageId" type="primary" size="sm">就这一页提问</FcTag>
           <FcTag v-else-if="coursewareId" type="default" size="sm">关联某份课件</FcTag>

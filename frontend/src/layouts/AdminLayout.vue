@@ -21,9 +21,9 @@ const NAV = [
   { name: 'admin-classes', label: '班级管理', path: '/admin/classes' },
   { name: 'admin-sessions', label: '课堂管理', path: '/admin/sessions' },
   { name: 'admin-coursewares', label: '课件与存储', path: '/admin/coursewares' },
-  // AI 智能体排在管理类功能之后：它不是「管别人」，而是管理员自己用的工具
+  // AI 助手排在管理类功能之后：它不是「管别人」，而是管理员自己用的工具
   // （与教师在 /agent 用的是同一个页面，只是留在管理端布局里，见 router/index.js）。
-  { name: 'admin-agent', label: 'AI 智能体', path: '/admin/agent' },
+  { name: 'admin-agent', label: 'AI 助手', path: '/admin/agent' },
   { name: 'admin-audit', label: '审计日志', path: '/admin/audit' },
 ]
 

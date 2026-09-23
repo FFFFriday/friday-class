@@ -57,10 +57,19 @@ const audienceChosen = computed(
 /** 两步都齐了才能提交。 */
 const canSubmit = computed(() => !!effectiveCoursewareId.value && audienceChosen.value)
 
+/**
+ * 每次打开的序号。用来丢弃「开 → 关 → 马上再开」时**先出发、后回来**的那次旧请求：
+ * 它若晚于新请求落地，会把新名单覆盖掉，并把 loading 提前熄掉（转圈闪一下就不见了）。
+ * 刻意不用 ref —— 它只参与比较，不需要驱动渲染。
+ */
+let openSeq = 0
+
 // 每次打开都重置并重新拉一次班级名单：
 // 老师可能刚在别的标签页建了班，缓存住会让他在下拉里找不到新班级。
 watch(open, async (isOpen) => {
   if (!isOpen) return
+  const seq = ++openSeq
+
   pickedCoursewareId.value = null
   audience.groupIds = []
   audience.studentIds = []
@@ -73,12 +82,15 @@ watch(open, async (isOpen) => {
       http.get('/class-groups/mine'),
       http.get('/class-groups/my-students'),
     ])
+    // 已经又开过一次了，这次的结果作废
+    if (seq !== openSeq) return
     myGroups.value = groups.list || []
     myStudents.value = students.list || []
   } catch (e) {
+    if (seq !== openSeq) return
     actionError.value = e.message || '加载班级失败'
   } finally {
-    loading.value = false
+    if (seq === openSeq) loading.value = false
   }
 })
 
@@ -134,7 +146,11 @@ async function submit() {
 </script>
 
 <template>
-  <FcModal v-model="open" title="开始上课" width="560px">
+  <FcModal
+    v-model="open"
+    :title="needPickCourseware ? '开始上课' : '给谁上课？'"
+    width="560px"
+  >
     <FcLoading v-if="loading" />
 
     <div v-else class="audience">
@@ -156,6 +172,7 @@ async function submit() {
             type="button"
             class="cw-pick__item"
             :class="{ 'cw-pick__item--on': pickedCoursewareId === c.id }"
+            :aria-pressed="pickedCoursewareId === c.id"
             @click="pickedCoursewareId = c.id"
           >
             <span class="cw-pick__name" :title="c.name">{{ c.name }}</span>
@@ -182,6 +199,7 @@ async function submit() {
             type="button"
             class="chip"
             :class="{ 'chip--on': audience.groupIds.includes(g.id) }"
+            :aria-pressed="audience.groupIds.includes(g.id)"
             @click="toggleGroup(g.id)"
           >
             {{ g.name }}（{{ g.memberCount }} 人）
@@ -203,6 +221,7 @@ async function submit() {
             type="button"
             class="chip"
             :class="{ 'chip--on': audience.studentIds.includes(s.id) }"
+            :aria-pressed="audience.studentIds.includes(s.id)"
             @click="toggleStudent(s.id)"
           >
             {{ s.nickname || s.username }}

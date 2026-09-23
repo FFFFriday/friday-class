@@ -74,6 +74,14 @@ function formatTime(value) {
   return value ? String(value).replace('T', ' ').slice(0, 16) : ''
 }
 
+/**
+ * 已结束的课优先看 endedAt；早期数据可能没有这个值，往下退到 startedAt / createdAt。
+ * 口径与课堂记录页一致 —— 否则同一节课在首页显示空白、在记录页却有时间。
+ */
+function rowTime(session) {
+  return formatTime(session.endedAt || session.startedAt || session.createdAt)
+}
+
 // ── 开课 ────────────────────────────────────────────────────
 //
 // 两个入口共用一个弹窗（StartClassModal，与课件详情页共用同一份逻辑）：
@@ -127,7 +135,15 @@ onMounted(() => {
           <!-- 卡片右下角的「上课」：课件已定，点完直接到「给谁上」那一步 -->
           <CoursewareCard v-for="c in mySection" :key="c.id" :courseware="c">
             <template #action>
-              <button class="btn-mini btn-mini--primary" type="button" @click="openStart(c)">
+              <!-- 四张卡片的按钮文字都是「上课」，可访问名称完全相同。
+                   屏幕阅读器用户逐个 Tab 过去时听到四个一样的「上课」，
+                   根本分不清点的是哪一份课件 —— 所以显式给 aria-label。 -->
+              <button
+                class="btn-mini btn-mini--primary"
+                type="button"
+                :aria-label="`给《${c.name}》上课`"
+                @click="openStart(c)"
+              >
                 上课
               </button>
             </template>
@@ -160,7 +176,7 @@ onMounted(() => {
         <ul class="lessons">
           <li v-for="s in endedSection" :key="s.id" class="lesson">
             <span class="lesson__title">{{ s.title || '未命名课堂' }}</span>
-            <span class="lesson__meta">{{ formatTime(s.endedAt) }}</span>
+            <span class="lesson__meta">{{ rowTime(s) }}</span>
             <span class="lesson__status">{{ STATUS_TEXT[s.status] }}</span>
             <!-- 这一条就是问题点 9 缺的那个入口：老师不下直播页也能进回顾 -->
             <router-link class="btn-mini" :to="{ name: 'session-record', params: { sessionId: s.id } }">

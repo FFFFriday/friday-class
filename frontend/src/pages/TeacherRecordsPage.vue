@@ -21,6 +21,15 @@ const ended = computed(() => list.value.filter((s) => s.status === 'ENDED'))
 
 const STATUS_TEXT = { NOT_STARTED: '未开始', LIVE: '直播中', PAUSED: '已暂停', ENDED: '已结束' }
 
+/**
+ * 状态中文。表里没有就退回原始值，再没有就显示一个破折号。
+ * 直接写 `STATUS_TEXT[s.status]` 的话，遇到没映射到的状态（后端的 status 由枚举转来，
+ * 为空时会传 null）这一格会**静默变成空白**，看起来像页面坏了。
+ */
+function statusText(status) {
+  return STATUS_TEXT[status] || status || '—'
+}
+
 async function load() {
   loading.value = true
   error.value = ''
@@ -85,7 +94,7 @@ onMounted(load)
                 <template v-if="rowTime(s)"> · {{ rowTime(s) }}</template>
               </span>
             </div>
-            <span class="row__status row__status--on">{{ STATUS_TEXT[s.status] }}</span>
+            <span class="row__status row__status--on">{{ statusText(s.status) }}</span>
             <router-link class="btn-mini btn-mini--primary" :to="`/teach/${s.id}`">
               进入控制台
             </router-link>
@@ -104,7 +113,7 @@ onMounted(load)
                 <template v-if="rowTime(s)"> · {{ rowTime(s) }}</template>
               </span>
             </div>
-            <span class="row__status">{{ STATUS_TEXT[s.status] }}</span>
+            <span class="row__status">{{ statusText(s.status) }}</span>
             <router-link
               class="btn-mini"
               :to="{ name: 'session-record', params: { sessionId: s.id } }"

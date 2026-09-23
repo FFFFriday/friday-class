@@ -346,7 +346,7 @@ function humanSize(bytes) {
 <template>
   <div class="agent">
     <header class="agent__head">
-      <h1 class="agent__title">AI 智能体</h1>
+      <h1 class="agent__title">AI 助手</h1>
       <p class="agent__sub">
         选好上下文，用一句话让它去查资料、产出一份能下载的文件。
         它只能看到你选定的课件与课堂，读不到别人的。
@@ -476,7 +476,7 @@ function humanSize(bytes) {
             class="msg"
             :class="[`msg--${m.role}`, { 'msg--error': m.kind === 'error', 'msg--warning': m.kind === 'warning' }]"
           >
-            <div class="msg__who">{{ m.role === 'user' ? '我' : 'AI 智能体' }}</div>
+            <div class="msg__who">{{ m.role === 'user' ? '我' : 'AI 助手' }}</div>
             <div class="msg__text">{{ m.text }}</div>
           </div>
         </div>

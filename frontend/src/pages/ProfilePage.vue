@@ -124,7 +124,10 @@ onMounted(load)
       <div class="card">
         <h2 class="sub">修改名字</h2>
         <p class="tip">这是显示用的名字，可以随便改，不影响登录。</p>
-        <div class="form">
+        <!-- 用真 <form> 而不是 <div>：这样在输入框里按**回车**就能提交。
+             按钮上的 type="button" 不能省 —— 它默认是 submit，有了 form 之后
+             点一下会先触发 @submit 再触发 @click，等于提交两次。 -->
+        <form class="form" @submit.prevent="saveName">
           <input
             v-model="nickname"
             type="text"
@@ -132,15 +135,15 @@ onMounted(load)
             placeholder="你的名字"
             aria-label="名字"
           />
-          <button class="btn" :disabled="savingName" @click="saveName">
+          <button class="btn" type="button" :disabled="savingName" @click="saveName">
             {{ savingName ? '保存中…' : '保存' }}
           </button>
-        </div>
+        </form>
       </div>
 
       <div class="card">
         <h2 class="sub">修改密码</h2>
-        <div class="form">
+        <form class="form" @submit.prevent="changePwd">
           <!--
             autocomplete 三个框各不相同，不是随手写的：
             · 原密码用 off —— 它是**已存在**的密码，但我们恰恰要它别被自动填上；
@@ -170,10 +173,10 @@ onMounted(load)
             :class="{ 'input--bad': pwdMismatch }"
           />
           <p v-if="pwdMismatch" class="warn" role="alert">两次输入的新密码不一致</p>
-          <button class="btn" :disabled="savingPwd || pwdMismatch" @click="changePwd">
+          <button class="btn" type="button" :disabled="savingPwd || pwdMismatch" @click="changePwd">
             {{ savingPwd ? '提交中…' : '确认修改' }}
           </button>
-        </div>
+        </form>
       </div>
     </template>
   </div>
