@@ -4,34 +4,69 @@
 
 ## 一句话定位
 
-教师上传 `.pptx` 课件，AI 自动逐页抽取知识点并预生成提问；授课时教师录屏直播、翻页自动广播页码，学生端 AI 助手随页码切换加载对应页知识点进行文字问答；课后基于「课件 + 知识点 + 问答记录」自动生成课程总结。
+教师上传 `.pptx` 课件，AI 自动逐页抽取知识点并预生成提问；授课时教师共享屏幕与声音、翻页自动广播页码，学生端 AI 助手随页码切换加载对应页知识点进行文字问答；课后基于「课件 + 知识点 + 问答记录」自动生成课程总结。
+
+---
+
+## 🤖 人工智能端的代码在哪里？
+
+**先回答一个最常被问到的问题：本项目的 AI 能力没有独立工程、没有独立进程，它就是后端里的一组包。**
+
+所以你在 `backend/` 下**找不到**叫 `ai` 或 `人工智能` 的目录——这是正常的。相关代码分布在下面这些位置：
+
+| 位置 | 内容 |
+|---|---|
+| `backend/src/main/java/com/fridayclass/llm/` | **大模型接入层（6 个类）**。`DeepSeekClient` 是 HTTP 客户端（含原生工具调用），`PromptTemplates` 集中存放全部提示词，另有 `CallKind` / `LlmResult` / `LlmToolCall` / `LlmException` |
+| `backend/src/main/java/com/fridayclass/service/agent/` | **AI 智能体（24 个类）**。`AgentLoop` 是多步推理主循环，另有 `AgentTaskService`、`AgentToolRegistry`、`WorkspacePathSandbox`、`WorkspaceFileService`；子包 `tool/` 是 6 类工具，`export/` 是 8 个导出器（Word / Excel / Markdown / 纯文本） |
+| `backend/src/main/java/com/fridayclass/dto/agent/` | 智能体的请求与响应模型（4 个类） |
+| `backend/src/main/java/com/fridayclass/service/` （直接放在这里） | 6 个 AI 相关服务：`AiParseService`（课件解析）、`QaService`（学生问答）、`AiConversationService`（会话管理）、`ChatService`（讨论区）、`PromptPackService`（按页下发提示词包）、`SessionSummaryService`（课后总结） |
+| `backend/src/main/java/com/fridayclass/entity/` · `repository/` | 7 张 AI 相关表的实体与仓储：`ai_parse_task`、`ai_conversation`、`qa_record`、`knowledge_point`、`preset_question`、`ai_generated_file`、`ai_agent_run` |
+| `db/migration/V4__ai_agent.sql` | AI 智能体两张表的迁移脚本 |
+| `docs/ai-agent-design.md` · `docs/周五课堂_AI智能体设计.docx` | AI 智能体的设计说明 |
+
+**为什么这么放**：AI 不是外挂，它要读课件页、要落库问答记录、要鉴权。做成独立服务反而要重造一遍这些通道。
+交付包里的「人工智能端源码」是**按上面这些路径抽取出来的子集**（保持原路径），不是另一套工程。
+
+---
 
 ## 📖 文档导航（先看这个）
 
 | 我想… | 看这份 |
 |---|---|
 | **了解项目全貌 / 进度 / 还差什么 / 配置怎么牵扯** | **[`项目看板.md`](项目看板.md)** ⭐ 总入口 |
+| **查接口怎么调** | **[`API接口文档.md`](API接口文档.md)** 接口权威文档（含「只有真调模型才知道的 7 件事」） |
 | **读懂后端代码** | [`backend/README.md`](backend/README.md) 后端阅读指南 |
-| 知道接口怎么调 | [`docs/api-contract.md`](docs/api-contract.md) 接口契约 |
 | 了解 AI 智能体怎么设计 | [`docs/ai-agent-design.md`](docs/ai-agent-design.md) |
-| 看架构图 / 设计图（Word 交付件） | `docs/*.docx` |
+| 看前后端接口契约 | [`docs/api-contract.md`](docs/api-contract.md) |
+| 看架构图 / 设计图（Word 交付件） | `docs/周五课堂_架构设计图.docx`、`docs/周五课堂_AI智能体设计.docx` |
 
-## 当前进度（2026-09-11）
+> ⚠️ `backend/README.md` 与 `项目看板.md` 的部分章节仍停留在早期版本，**以本文件与 `API接口文档.md` 为准**。
 
-| 已做 | 待做 |
+---
+
+## 当前进度（2026-09-23 结项）
+
+**全部功能已完成并验证，`main` 即最新可交付状态（`b9c00bc`）。**
+
+| 项 | 状态 |
 |---|---|
-| ✅ 数据库 9 张表 | ⬜ F002 AI 课件解析 🛑 缺 DeepSeek Key |
-| ✅ 账户与 JWT 认证 | ⬜ F003 直播翻页同步 |
-| ✅ 门户课件浏览 | ⬜ F004 学生 AI 问答 |
-| ✅ **F001 课件上传与逐页文字抽取** | ⬜ F005/F006 |
-| ✅ AI 智能体设计（文档+图） | ⬜ 前端接真实后端（现跑假数据） |
+| 功能模块 | 12 个定义，**完成 11 个**（F006 学情统计为 C 级增强功能，本期未实施，数据源已具备） |
+| 后端 | 186 个 Java 类，**91 个 REST 接口** + 1 个 WebSocket 端点（21 种消息） |
+| 前端 | 22 个页面组件 + 23 个公共组件 |
+| 数据库 | **19 张表**，迁移脚本 V2 / V3 / V4 均已执行 |
+| 代码规模 | 38380 行 / 267 个源文件（含空行与注释） |
+| 测试 | 单元测试 71 项全部通过；接口与流程自动化验证 153 项全部通过 |
+| 工作量 | 48 人天 |
+
+---
 
 ## 快速开始
 
 ```bash
-# 1) 建库
-mysql -u root -p < db/schema.sql
-mysql --default-character-set=utf8mb4 -u root -p friday_class < db/seed_teacher.sql  # 预置教师账号
+# 1) 建库建表（schema.sql 已含全部 19 张表）
+mysql -u root -p friday_class < db/schema.sql
+mysql --default-character-set=utf8mb4 -u root -p friday_class < db/seed_admin.sql    # 预置管理员
+mysql --default-character-set=utf8mb4 -u root -p friday_class < db/seed_teacher.sql  # 预置教师
 
 # 2) 后端（先配好 backend/src/main/resources/application-local.yml，见 backend/README.md）
 cd backend && mvn spring-boot:run          # → http://localhost:8081
@@ -39,6 +74,12 @@ cd backend && mvn spring-boot:run          # → http://localhost:8081
 # 3) 前端
 cd frontend && npm install && npm run dev  # → http://localhost:5173
 ```
+
+**预置账号**：管理员 `admin` / `admin123456`；教师 `teacher` / `teacher123`。
+**学生账号不预置**，在登录页自行注册（注册接口只创建学生）。
+
+> `application-local.yml` 不入库（已 gitignore），需自行创建，内含三项必填：
+> 数据库密码、JWT 密钥（长度 ≥ 32 字节）、DeepSeek API Key。缺任一项后端启动即失败。
 
 > ### ⚠️ 模型调用报「Connect timed out」——这是本机网络问题，不是代码缺陷
 >
@@ -84,27 +125,39 @@ cd frontend && npm install && npm run dev  # → http://localhost:5173
 > 「JVM 优先走 IPv6」（`-Djava.net.preferIPv4Stack=true` 实测无效）、
 > 「换 JDK HttpClient 就好了」（实测无效）。
 
+---
+
 ## 技术栈
 
 | 层 | 选型 |
 |---|---|
-| 大模型 | DeepSeek 纯文本模型（仅文本，无多模态） |
-| 前端 | Vue 3 + Vite（JavaScript） |
-| 后端 | SpringBoot |
-| 数据库 | MySQL 9.5 |
-| 实时 | WebSocket（翻页页码广播） |
-| 文件存储 | 服务器文件系统（`.pptx` 课件 + 网页幻灯片） |
+| 大模型 | DeepSeek 纯文本模型 `deepseek-flash`（仅文本，无多模态 / 无 TTS / 无 ASR） |
+| 前端 | Vue 3 + Vite 6 + Vue Router 4 + Pinia 2 + Axios（JavaScript） |
+| 后端 | Spring Boot 3.5 + Spring Data JPA + Spring Security + JWT |
+| 数据库 | MySQL 9.5（utf8mb4） |
+| 实时 | WebSocket（翻页 / 发言 / 在线名单 / 共享信令，共 21 种消息）+ WebRTC（屏幕与音频点对点） |
+| 文件存储 | 服务器文件系统（`.pptx` 课件 + 网页幻灯片 + 智能体工作区） |
 
-## 功能模块（F001–F006）
+---
 
-| 编号 | 模块 | 分级 | 说明 |
+## 功能模块（F001–F012）
+
+| 编号 | 模块 | 分级 | 状态 |
 |---|---|---|---|
-| F001 | 课件上传与解析 | A（Must） | `.pptx` → 网页幻灯片 + 逐页文字抽取 |
-| F002 | AI 课件解析 | A（Must） | DeepSeek 逐页生成知识点 + 预置提问 |
-| F003 | 直播授课与翻页同步 | A（Must） | 录屏直播 + 翻页广播页码 |
-| F004 | 学生端 AI 问答助手 | A（Must） | 按当前页加载提示词，文字问答 |
-| F005 | 课后总结归纳 | B（Should） | 课件 + 知识点 + 问答 → 自动总结 |
-| F006 | 学情统计 | C（Could） | 问答记录聚合统计 |
+| F001 | 课件上传与解析 | A（Must） | ✅ |
+| F002 | AI 课件解析 | A（Must） | ✅ |
+| F003 | 直播授课与实时课堂传输 | A（Must） | ✅ |
+| F004 | 学生端 AI 问答助手 | A（Must） | ✅ |
+| F005 | 课后总结归纳 | B（Should） | ✅ |
+| F006 | 学情统计 | C（Could） | ⬜ **本期未实施** |
+| F007 | 课堂讨论区 | A（Must） | ✅ |
+| F008 | 课堂记录与回顾 | B（Should） | ✅ |
+| F009 | 学生端知识可见 | A（Must） | ✅ |
+| F010 | 班级体系与课堂可见性 | B（Should） | ✅ |
+| F011 | 管理端 | B（Should） | ✅ |
+| F012 | AI 智能体（教师助教） | B（Should） | ✅ |
+
+---
 
 ## 目录结构
 
@@ -112,29 +165,57 @@ cd frontend && npm install && npm run dev  # → http://localhost:5173
 .
 ├── CLAUDE.md          # 项目宪章（选题 / 决策 / 硬性规范）
 ├── README.md          # 项目说明（本文件）
-├── 项目看板.md         # ⭐ 项目总看板（进度 / 功能 / 配置 / 未实现）
+├── 项目看板.md         # 项目总看板（进度 / 功能 / 配置 / 技术债）
+├── API接口文档.md      # ⭐ 接口权威文档（91 个 REST + 1 个 WS 端点）
 ├── db/
-│   ├── schema.sql         # 建表脚本（9 张表）
-│   └── seed_teacher.sql   # 教师账号预置脚本
-├── docs/              # 文档 / 设计图 / 交付件
-│   ├── api-contract.md        # 接口契约（前后端合同）
-│   └── ai-agent-design.md     # AI 智能体设计
-├── backend/           # SpringBoot 后端
-│   └── README.md          # 后端阅读指南
+│   ├── schema.sql         # 建表脚本（19 张表，含 V2~V4 的全部结构）
+│   ├── migration/         # 增量迁移：V2__new_features / V3__class_group / V4__ai_agent
+│   ├── seed_admin.sql     # 管理员账号预置
+│   └── seed_teacher.sql   # 教师账号预置
+├── docs/              # 设计与交付文档
+│   ├── api-contract.md        # 前后端接口契约
+│   ├── ai-agent-design.md     # AI 智能体设计
+│   ├── *.puml / *.png         # 架构图、时序图的源文件与图
+│   ├── gen_diagram.py 等      # 画图与文档生成的本地脚本
+│   └── *.docx                 # Word 交付件（架构设计图 / AI 智能体设计）
+├── backend/           # Spring Boot 后端
+│   ├── README.md          # 后端阅读指南
+│   └── storage/           # 运行数据：courseware / slides / ai-workspace（gitignore）
 └── frontend/          # Vue 前端
+    └── src/
+        ├── pages/         # 22 个页面组件（含 admin/ 与 home/ 子目录）
+        ├── components/    # 23 个公共组件
+        ├── composables/   # 组合式函数（含 AI 解析、提示词包等）
+        ├── stores/        # Pinia 状态管理（auth 是登录态唯一真源）
+        ├── api/           # 接口封装
+        ├── layouts/       # 布局
+        ├── router/        # 路由（按角色分流）
+        └── styles/        # 设计令牌 tokens.css + 全局样式 base.css
 ```
 
-## 数据库（9 张表）
+---
 
-`user` · `courseware` · `courseware_page` · `knowledge_point` · `preset_question` · `class_session`（课堂/直播会话） · `qa_record` · `course_summary` · `ai_parse_task`（AI 解析任务）
+## 数据库（19 张表）
+
+**身份与内容**：`user` · `courseware` · `courseware_page` · `knowledge_point` · `preset_question` · `ai_parse_task`
+
+**课堂与互动**：`class_session` · `chat_message` · `session_participant` · `course_summary`
+
+**问答与会话**：`qa_record` · `ai_conversation`
+
+**班级与授权**：`class_group` · `class_group_member` · `session_class_group` · `session_audience`
+
+**运营与智能体**：`admin_audit_log` · `ai_generated_file` · `ai_agent_run`
 
 初始化：
 
 ```bash
-mysql -u root -p < db/schema.sql
+mysql -u root -p friday_class < db/schema.sql
 ```
+
+---
 
 ## 团队
 
-- 组长：刘康旭
-- 组员：张津玮
+- 组长：刘康旭（202324120310）
+- 组员：张津玮（202324120336）
