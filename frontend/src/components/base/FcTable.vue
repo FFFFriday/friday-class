@@ -66,6 +66,10 @@ defineProps({
   width: 100%;
   border-collapse: collapse;
   font-size: var(--fc-font-sm);
+  /* 表格里的数字（人数、页数、时间、ID）用等宽数字：
+     默认的比例数字，「1」比「8」窄，同列上下对不齐，看着毛毛躁躁。
+     只影响数字字形，对中文与字母没有任何副作用。 */
+  font-variant-numeric: tabular-nums;
 }
 
 .fc-table th {

@@ -92,6 +92,9 @@ defineProps({
 .fc-card__footer {
   padding: var(--fc-space-3) var(--fc-space-4);
   border-top: 1px solid var(--fc-border);
-  background: var(--fc-bg-weak, transparent);
+  /* 原先写的是 var(--fc-bg-weak, transparent) —— tokens.css 里**没有** --fc-bg-weak，
+     于是这一行一直在取兜底值 transparent，页脚底色从来没生效过。
+     全库扫过，引用未定义令牌的只有这一处。 */
+  background: var(--fc-bg-muted);
 }
 </style>

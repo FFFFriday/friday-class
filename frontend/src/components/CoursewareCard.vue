@@ -76,16 +76,25 @@ const uploadedDate = computed(() => {
 .cw-card {
   display: flex;
   flex-direction: column;
-  background: #fff;
-  border: 1px solid #eee;
+  background: var(--fc-bg-panel);
+  border: 1px solid var(--fc-border);
   border-radius: 10px;
   overflow: hidden;
-  transition: box-shadow 0.18s ease, transform 0.18s ease;
+  /* 逐项列出、并且用统一的缓动与时长令牌：
+     原先写死的 `0.18s ease` 和别处不一样，全站动效会「各走各的」。 */
+  transition:
+    box-shadow var(--fc-dur) var(--fc-ease-out),
+    transform var(--fc-dur) var(--fc-ease-out),
+    border-color var(--fc-dur) var(--fc-ease-out);
 }
 
+/* 悬停：抬起 + 分层阴影 + 描边染主色。
+   只动 transform 不动尺寸，所以不会把同一行其他卡片顶动。
+   这是全站最常被划过的一排元素，也是「页面活不活」最先被感知到的地方。 */
 .cw-card:hover {
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.09);
-  transform: translateY(-2px);
+  box-shadow: var(--fc-shadow);
+  border-color: var(--fc-primary-border);
+  transform: translateY(-3px);
 }
 
 /* 链接主体撑满卡片，卡片高度由 .body 的 flex:1 拉齐（一行卡片高度整齐） */

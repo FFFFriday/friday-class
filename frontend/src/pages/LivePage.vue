@@ -593,6 +593,9 @@ watch(() => route.params.sessionId, load, { immediate: true })
 .tag.page {
   color: var(--fc-primary);
   background: var(--fc-primary-bg);
+  /* 学生端这枚「第 N 页」每翻一次就变一次。用等宽数字，
+     否则 1↔8 一变，徽章宽度跟着跳，旁边的元素也跟着晃。 */
+  font-variant-numeric: tabular-nums;
 }
 
 .tag.on {

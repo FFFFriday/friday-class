@@ -55,8 +55,30 @@ function onClick(event) {
   border-radius: var(--fc-radius);
   font-weight: var(--fc-weight-medium);
   white-space: nowrap;
-  transition: background var(--fc-transition), color var(--fc-transition),
-    border-color var(--fc-transition), opacity var(--fc-transition);
+  /* 逐项列出而不是 `transition: all`：all 会把布局属性也带上，
+     一次 hover 就可能引发整棵子树重排。transform 单独给更短的时长，
+     按下要「跟手」。 */
+  transition:
+    background var(--fc-transition),
+    color var(--fc-transition),
+    border-color var(--fc-transition),
+    opacity var(--fc-transition),
+    transform var(--fc-dur-press) var(--fc-ease-out);
+}
+
+/* 按下时轻微内缩 —— 按钮「被按下去」的手感全靠这一下。
+   只动 transform，**不动宽高**：改尺寸会触发重排、把旁边的按钮一起顶动，
+   反而显得抖。这一条之前全项目只有 1 处，是最大的手感缺口。 */
+.fc-btn:not(:disabled):active {
+  transform: scale(0.97);
+}
+
+/* 减少动效偏好下取消形变、只保留颜色反馈：
+   过渡已被全局规则掐到 0.01ms，形变会变成「闪一下」，比不做还难受。 */
+@media (prefers-reduced-motion: reduce) {
+  .fc-btn:not(:disabled):active {
+    transform: none;
+  }
 }
 
 .fc-btn--block {

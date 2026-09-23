@@ -94,7 +94,7 @@ const isMultiline = computed(() => props.rows > 0)
   border-color: var(--fc-danger);
 }
 .fc-field__control--error:focus-within {
-  box-shadow: 0 0 0 3px rgba(231, 76, 60, 0.12);
+  box-shadow: 0 0 0 3px var(--fc-danger-tint);
 }
 
 .fc-field__input {

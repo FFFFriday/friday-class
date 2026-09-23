@@ -194,9 +194,9 @@ onMounted(load)
   font-size: 22px;
 }
 .card {
-  background: #fff;
-  border: 1px solid #eee;
-  border-radius: 8px;
+  background: var(--fc-bg-panel);
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius);
   padding: 20px 24px;
 }
 .who {
@@ -207,13 +207,13 @@ onMounted(load)
 }
 .role {
   font-size: 12px;
-  color: #d97757;
-  background: #fff3e6;
+  color: var(--fc-primary);
+  background: var(--fc-primary-bg);
   padding: 2px 8px;
-  border-radius: 20px;
+  border-radius: var(--fc-radius-pill);
 }
 .meta {
-  color: #999;
+  color: var(--fc-text-faint);
   font-size: 13px;
   margin-top: 6px;
 }
@@ -223,7 +223,7 @@ onMounted(load)
 }
 .tip {
   font-size: 13px;
-  color: #999;
+  color: var(--fc-text-faint);
   margin-bottom: 12px;
 }
 .form {
@@ -233,31 +233,46 @@ onMounted(load)
 }
 .form input {
   padding: 9px 12px;
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  font-size: 14px;
+  border: 1px solid var(--fc-border-strong);
+  border-radius: var(--fc-radius);
+  background: var(--fc-bg-panel);
+  font-size: var(--fc-font);
+  transition: border-color var(--fc-transition), box-shadow var(--fc-transition);
 }
+/* 与 FcInput 完全一致的聚焦观感：边框染主色 + 一圈 3px 半透明主色环。
+   原来只把边框变橙、没有环 —— 比组件库里的输入框弱一档，看着不像一套东西。 */
 .form input:focus {
   outline: none;
-  border-color: #d97757;
+  border-color: var(--fc-primary);
+  box-shadow: 0 0 0 3px var(--fc-primary-tint);
 }
 /* 两次密码不一致时给输入框本身一个红边，比只在下面写一行字更容易被看到 */
 .form input.input--bad {
-  border-color: #e74c3c;
+  border-color: var(--fc-danger);
+}
+.form input.input--bad:focus {
+  border-color: var(--fc-danger);
+  box-shadow: 0 0 0 3px var(--fc-danger-tint);
 }
 .warn {
   font-size: 13px;
-  color: #e74c3c;
+  color: var(--fc-danger);
 }
 .btn {
   padding: 9px 16px;
   border: none;
-  border-radius: 6px;
-  background: #d97757;
-  color: #fff;
+  border-radius: var(--fc-radius);
+  background: var(--fc-primary);
+  color: var(--fc-text-invert);
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--fc-font);
   align-self: flex-start;
+  transition:
+    background var(--fc-transition),
+    transform var(--fc-dur-press) var(--fc-ease-out);
+}
+.btn:hover:not(:disabled) {
+  background: var(--fc-primary-hover);
 }
 .btn:disabled {
   opacity: 0.6;

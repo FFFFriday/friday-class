@@ -40,6 +40,9 @@ h1, h2, h3, h4, h5, h6 {
   font-weight: var(--fc-weight-semibold);
   line-height: 1.3;
   color: var(--fc-text);
+  /* 标题折行时让两行**长度接近**，而不是「长长的一行 + 孤零零一个字」。
+     对「计算机网络第 8 版课件」这种会折行的中文标题效果最明显。 */
+  text-wrap: balance;
 }
 
 h1 { font-size: var(--fc-font-2xl); }
@@ -49,6 +52,28 @@ h4 { font-size: var(--fc-font-md); }
 
 p { margin-bottom: var(--fc-space-3); }
 p:last-child { margin-bottom: 0; }
+
+/* 正文与列表项：`pretty` 会避免最后一行只剩一两个字（孤行）。
+   本项目没有超长文档，所以放在基础层是安全的。 */
+p,
+li {
+  text-wrap: pretty;
+}
+
+/* ── 图片描边 ─────────────────────────────────────────────── */
+/* 幻灯片预览、头像这类图，边缘常常和白底糊在一起分不出边界。
+   一层**向内**的极淡描边就能压出轮廓。
+   用中性黑白透明色，不要用品牌色 —— 那条边是「轮廓」不是「装饰」。 */
+img {
+  outline: 1px solid rgba(0, 0, 0, 0.1);
+  outline-offset: -1px;
+}
+
+@media (prefers-color-scheme: dark) {
+  img {
+    outline-color: rgba(255, 255, 255, 0.1);
+  }
+}
 
 a {
   color: var(--fc-primary);
@@ -83,6 +108,19 @@ button {
 
 button:disabled {
   cursor: not-allowed;
+}
+
+/* ── 全局按下反馈 ─────────────────────────────────────────── */
+/* 给所有按钮一个默认的「按下」形变。各页散落的 .chip / .btn-mini 之类
+   自定义按钮不必各写一遍。
+   组件自己的 :active（如 FcButton 的 scale(0.97)、FcModal 关闭按钮的 0.9）
+   优先级更高，会覆盖这里 —— 想调就调，不会被卡住。
+   只动 transform 不动宽高：改尺寸会触发重排，把旁边元素一起顶动。
+   包在 no-preference 里：开了「减少动效」的用户不该看到任何形变。 */
+@media (prefers-reduced-motion: no-preference) {
+  button:not(:disabled):active {
+    transform: scale(0.97);
+  }
 }
 
 /* ── 去掉数字输入框的上下箭头 ─────────────────────────────── */
@@ -133,6 +171,13 @@ input[type='number'] {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 等宽数字。**页码、人数、计时、页数**这类会变的数字必须用它：
+   默认的数字是比例宽度，「第 11 页」和「第 99 页」里的 1 比 9 窄，
+   数字一跳整行字就跟着左右晃。 */
+.fc-tnum {
+  font-variant-numeric: tabular-nums;
 }
 
 /* 屏幕阅读器可见、视觉不可见。 */

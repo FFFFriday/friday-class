@@ -90,36 +90,40 @@ onBeforeUnmount(unbind)
   <!-- Teleport 到 body：弹窗若留在原位置，父级的 overflow:hidden 或
        transform 会把它裁掉 / 让它定位失准。挂到 body 下最稳。 -->
   <Teleport to="body">
-    <div v-if="open" class="fc-modal" role="dialog" aria-modal="true">
-      <div class="fc-modal__mask" @click="onMaskClick" />
+    <!-- 用 <Transition> 而不是 v-if 硬切：硬切会让弹窗「啪」地出现，
+         一眼看出是 DOM 在换。进场稍慢、出场更快更静，见下方 CSS。 -->
+    <Transition name="fc-modal">
+      <div v-if="open" class="fc-modal" role="dialog" aria-modal="true">
+        <div class="fc-modal__mask" @click="onMaskClick" />
 
-      <div class="fc-modal__panel" :style="{ width }">
-        <header class="fc-modal__header">
-          <h3 class="fc-modal__title">{{ title }}</h3>
-          <button class="fc-modal__close" type="button" aria-label="关闭" @click="close">×</button>
-        </header>
+        <div class="fc-modal__panel" :style="{ width }">
+          <header class="fc-modal__header">
+            <h3 class="fc-modal__title">{{ title }}</h3>
+            <button class="fc-modal__close" type="button" aria-label="关闭" @click="close">×</button>
+          </header>
 
-        <div class="fc-modal__body">
-          <slot />
+          <div class="fc-modal__body">
+            <slot />
+          </div>
+
+          <footer v-if="$slots.footer" class="fc-modal__footer">
+            <slot name="footer" />
+          </footer>
+
+          <!--
+            倒计时条：让「它会自己关」这件事可见。
+            悄悄自动关闭比不关更让人困惑——用户会以为是自己点错了或没点到。
+            用 CSS 动画而不是 JS 每帧更新剩余宽度：动画在合成器上跑，不占主线程。
+          -->
+          <div
+            v-if="autoCloseMs > 0 && !autoClosed"
+            class="fc-modal__auto-close"
+            :style="{ animationDuration: `${autoCloseMs}ms` }"
+            aria-hidden="true"
+          />
         </div>
-
-        <footer v-if="$slots.footer" class="fc-modal__footer">
-          <slot name="footer" />
-        </footer>
-
-        <!--
-          倒计时条：让「它会自己关」这件事可见。
-          悄悄自动关闭比不关更让人困惑——用户会以为是自己点错了或没点到。
-          用 CSS 动画而不是 JS 每帧更新剩余宽度：动画在合成器上跑，不占主线程。
-        -->
-        <div
-          v-if="autoCloseMs > 0 && !autoClosed"
-          class="fc-modal__auto-close"
-          :style="{ animationDuration: `${autoCloseMs}ms` }"
-          aria-hidden="true"
-        />
       </div>
-    </div>
+    </Transition>
   </Teleport>
 </template>
 
@@ -166,6 +170,7 @@ onBeforeUnmount(unbind)
 }
 
 .fc-modal__close {
+  position: relative;
   flex-shrink: 0;
   width: 28px;
   height: 28px;
@@ -173,11 +178,26 @@ onBeforeUnmount(unbind)
   font-size: 20px;
   line-height: 1;
   color: var(--fc-text-faint);
-  transition: background var(--fc-transition), color var(--fc-transition);
+  transition:
+    background var(--fc-transition),
+    color var(--fc-transition),
+    transform var(--fc-dur-press) var(--fc-ease-out);
 }
 .fc-modal__close:hover {
   background: var(--fc-bg-muted);
   color: var(--fc-text);
+}
+.fc-modal__close:active {
+  transform: scale(0.9);
+}
+
+/* 视觉尺寸只有 28px，但**命中区撑到 40px**：伪元素向四周各扩 6px。
+   关闭按钮孤零零待在标题栏右侧、周围没有别的控件，扩出去不会和谁重叠 ——
+   这一点很重要，密集工具栏里的小按钮就不能这么干。 */
+.fc-modal__close::before {
+  content: '';
+  position: absolute;
+  inset: -6px;
 }
 
 /* 内容区可滚动，标题与按钮固定——长内容（如总结正文）不该把按钮顶出屏幕 */
@@ -219,6 +239,36 @@ onBeforeUnmount(unbind)
   to {
     transform: scaleX(0);
   }
+}
+
+/* ── 进出场 ───────────────────────────────────────────────── */
+/* 遮罩淡入淡出；面板额外做一点位移与缩放，让它像是「从上方推出来」。
+   出场**比进场短**：用户已经决定要走了，拖久了只会显得迟钝。 */
+
+.fc-modal-enter-active {
+  transition: opacity var(--fc-dur-enter) var(--fc-ease-out);
+}
+.fc-modal-leave-active {
+  transition: opacity var(--fc-dur-exit) var(--fc-ease-out);
+}
+.fc-modal-enter-from,
+.fc-modal-leave-to {
+  opacity: 0;
+}
+
+.fc-modal-enter-active .fc-modal__panel {
+  transition: transform var(--fc-dur-enter) var(--fc-ease-out);
+}
+.fc-modal-enter-from .fc-modal__panel {
+  transform: translateY(12px) scale(0.97);
+}
+
+.fc-modal-leave-active .fc-modal__panel {
+  transition: transform var(--fc-dur-exit) var(--fc-ease-out);
+}
+.fc-modal-leave-to .fc-modal__panel {
+  /* 出场位移更小：只需要「退回去一点」的感觉，不需要再演一遍完整行程 */
+  transform: translateY(4px) scale(0.99);
 }
 
 /* 尊重「减少动态效果」偏好：不播放缩放动画，留一条静态提示线 */
