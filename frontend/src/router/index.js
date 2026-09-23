@@ -23,14 +23,15 @@ const routes = [
     name: 'upload',
     component: () => import('@/pages/UploadPage.vue'),
     // staffOnly 只是前端体验（学生不该点进来看到上传表单）。
-    // 真正的权限边界在后端：POST /courseware/upload 上有 @PreAuthorize("hasRole('TEACHER')")。
+    // 真正的权限边界在后端：POST /courseware/upload 上有
+    // @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")。
     meta: { requiresAuth: true, staffOnly: true },
   },
   { path: '/live/:sessionId', name: 'live', component: () => import('@/pages/LivePage.vue'), meta: { requiresAuth: true } },
   {
     // 教师端直播控制台：开课后进来，负责翻页。
     // staffOnly 只是前端体验；真正的边界在后端
-    // （POST /api/session/*/page 在 SecurityConfig 与 @PreAuthorize 上都限了 TEACHER）。
+    // （POST /api/session/*/page 在 SecurityConfig 与 @PreAuthorize 上都限了 TEACHER 与 ADMIN）。
     path: '/teach/:sessionId',
     name: 'teach',
     component: () => import('@/pages/TeacherLivePage.vue'),
@@ -57,7 +58,7 @@ const routes = [
     // 纯净演示页：老师**共享出去的就是这个标签页**。
     // layout: false 是关键——不带任何导航栏与外壳，学生看到的只有幻灯片本身。
     // staffOnly 只是前端体验；真正的边界在后端
-    // （POST /api/session/*/page 在 SecurityConfig 与 @PreAuthorize 上都限了 TEACHER）。
+    // （POST /api/session/*/page 在 SecurityConfig 与 @PreAuthorize 上都限了 TEACHER 与 ADMIN）。
     path: '/present/:sessionId',
     name: 'present',
     component: () => import('@/pages/TeachPresentPage.vue'),
@@ -167,7 +168,7 @@ router.beforeEach(async (to) => {
     // 「教师专属」现在的含义是「教师或管理员」：需求明确管理员是权限更大的教师。
     // 元信息键名一并换了，免得下一个读代码的人被旧名字误导成「管理员进不来」——
     // 这个坑（角色判定把管理员挡在门外）项目里已经踩过两次。
-    if (to.meta.staffOnly && !auth.isTeacher && !auth.isAdmin) {
+    if (to.meta.staffOnly && !auth.isStaff) {
       return { name: 'home' }
     }
 
@@ -180,7 +181,7 @@ router.beforeEach(async (to) => {
     // AI 智能体：教师与管理员都能进，学生不能。
     // 同样不能复用上面两条 —— staffOnly 会把管理员挡住、adminOnly 会把教师挡住，
     // 这个坑与 admin 那一条是同一个。
-    if (to.meta.agentOnly && !auth.isTeacher && !auth.isAdmin) {
+    if (to.meta.agentOnly && !auth.isStaff) {
       return { name: 'home' }
     }
   }

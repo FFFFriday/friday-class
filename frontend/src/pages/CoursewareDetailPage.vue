@@ -121,7 +121,8 @@ async function loadLive() {
 
   // 教师视角：还要看**自己**的课。它包含 NOT_STARTED（刚开课还没翻页），
   // 这正是老师退出控制台后能回来的唯一依据。
-  if (!auth.isTeacher) {
+  // 管理员同样算数（isStaff）—— 否则他刚开完课、退出控制台就再也找不回来了。
+  if (!auth.isStaff) {
     mySession.value = null
     return
   }
@@ -190,15 +191,15 @@ watch(() => route.params.id, load, { immediate: true })
           :to="`/live/${liveSession.id}`"
         >
           <span class="dot" aria-hidden="true"></span>
-          {{ auth.isTeacher ? '其他老师的直播' : '正在直播 · 进入课堂' }}
+          {{ auth.isStaff ? '其他老师的直播' : '正在直播 · 进入课堂' }}
         </router-link>
 
-        <!-- 开课按钮：只给教师，且自己在这份课件上没有进行中的课堂时才出现。
+        <!-- 开课按钮：只给教师与管理员（isStaff），且自己在这份课件上没有进行中的课堂时才出现。
              真正的权限边界在后端（POST /api/session 在 SecurityConfig 与 @PreAuthorize
-             上都限了 TEACHER），而且 Service 里对「同一课件已有未结束课堂」做了幂等复用，
-             所以万一这个按钮还是被点了，也只会回到原来那节课，不会多开一节。 -->
+             上都限了 TEACHER 与 ADMIN），而且 Service 里对「同一课件已有未结束课堂」
+             做了幂等复用，所以万一这个按钮还是被点了，也只会回到原来那节课，不会多开一节。 -->
         <button
-          v-if="auth.isTeacher && !mySession"
+          v-if="auth.isStaff && !mySession"
           class="btn primary"
           @click="startOpen = true"
         >
@@ -211,13 +212,13 @@ watch(() => route.params.id, load, { immediate: true })
     </header>
 
     <!--
-      AI 解析（F002）。只给教师看：后端 POST /api/courseware/{id}/parse 上
-      同时有 SecurityConfig 与 @PreAuthorize 两道 TEACHER 限制，这里只是不让学生
+      AI 解析（F002）。只给教师与管理员看（isStaff）：后端 POST /api/courseware/{id}/parse 上
+      同时有 SecurityConfig 与 @PreAuthorize 两道 TEACHER/ADMIN 限制，这里只是不让学生
       看到一个点了必然 403 的按钮。
       放在正文上方，是因为「这份课件到底有没有被 AI 读懂」是老师开课**之前**
       就该确认的事——学生提问全部答不出内容，根因往往就在这里。
     -->
-    <section v-if="auth.isTeacher" class="parse">
+    <section v-if="auth.isStaff" class="parse">
       <div class="parse-top">
         <span class="parse-name">AI 解析</span>
         <span
@@ -343,7 +344,7 @@ watch(() => route.params.id, load, { immediate: true })
             本页没有解析出内容。封面页、目录页、纯图片页会这样，属正常情况。
           </p>
           <!-- 未解析时的提示要分角色：学生点不了「开始 AI 解析」，不能让他去点一个不存在的按钮 -->
-          <p v-else-if="auth.isTeacher" class="kp-empty">
+          <p v-else-if="auth.isStaff" class="kp-empty">
             这份课件还没有 AI 解析，点上面的按钮跑一次，就能看到每页的知识点。
           </p>
           <p v-else class="kp-empty">老师还没有对这份课件做 AI 解析，暂时看不到知识点。</p>

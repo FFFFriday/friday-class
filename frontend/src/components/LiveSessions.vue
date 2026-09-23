@@ -10,7 +10,7 @@
 //
 // 两个数据源：
 //   · GET /api/session/active —— 所有 status=LIVE 的课（谁都能看）
-//   · GET /api/session/mine   —— 我自己的、未结束的课（含 NOT_STARTED，仅教师）
+//   · GET /api/session/mine   —— 我自己的、未结束的课（含 NOT_STARTED，仅教师与管理员）
 // 后者的存在是必须的：刚开完课还没翻页时状态是 NOT_STARTED，不在 active 里。
 //
 // 两块都为空时**整块不渲染**（v-if），不占位、不显示空状态——
@@ -21,7 +21,7 @@ import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
 
-/** 我自己的课（仅教师，含未开始的）。 */
+/** 我自己的课（教师与管理员，含未开始的）。 */
 const mine = ref([])
 /** 别人的直播（教师视角）/ 全部直播（学生视角）。 */
 const live = ref([])
@@ -32,7 +32,9 @@ async function load() {
   try {
     const data = await http.get('/session/active')
     const all = data.list || []
-    live.value = auth.isTeacher
+    // 教师与管理员都按「我的课 / 别人的课」分开看：管理员是权限更大的教师，
+    // 他也要能一眼看到自己那节课在哪（用 isStaff，别写成 isTeacher）
+    live.value = auth.isStaff
       ? all.filter((s) => s.teacherId !== auth.user?.id)
       : all
   } catch {
@@ -40,7 +42,10 @@ async function load() {
     live.value = []
   }
 
-  if (!auth.isTeacher) {
+  // ⚠ 这里原来写的是 `!auth.isTeacher`：管理员走进来直接 return，
+  // 「我的课堂」永远不查 —— 于是他刚开的那节课（NOT_STARTED，不进 /session/active）
+  // 就此消失，而这正是本次「管理员按教师身份使用前台」的主诉求。
+  if (!auth.isStaff) {
     mine.value = []
     return
   }
@@ -89,7 +94,7 @@ onMounted(load)
       <header class="live-head">
         <h2 class="live-title">
           <span class="dot" aria-hidden="true"></span>
-          {{ auth.isTeacher ? '其他老师的课堂' : '正在直播' }}
+          {{ auth.isStaff ? '其他老师的课堂' : '正在直播' }}
         </h2>
         <span class="live-count">{{ live.length }} 节课进行中</span>
       </header>

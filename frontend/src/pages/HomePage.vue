@@ -26,7 +26,7 @@ const auth = useAuthStore()
   <!-- 管理员走教师首页：需求是「管理员是权限更大的教师」。
        后端也相应把 /session/mine、/session/taught 等接口放行了 ADMIN，
        否则这一页会拉到 403、「我的课堂」整块报错。 -->
-  <TeacherHome v-else-if="auth.isTeacher || auth.isAdmin" />
+  <TeacherHome v-else-if="auth.isStaff" />
   <StudentHome v-else />
 </template>
 

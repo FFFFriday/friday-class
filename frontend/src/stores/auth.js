@@ -47,6 +47,20 @@ export const useAuthStore = defineStore('auth', () => {
   const isTeacher = computed(() => role.value === 'TEACHER')
   /** 管理员。只有他能进 /admin/**；真正的边界在后端 SecurityConfig。 */
   const isAdmin = computed(() => role.value === 'ADMIN')
+
+  /**
+   * **教师或管理员** —— 需求口径是「管理员是权限更大的教师」，
+   * 所以凡是「教师能做的事」（上课、翻页、上传、看自己的课），管理员都应该能做。
+   *
+   * <p>为什么要单独抽这个 getter：把这个判断写成光秃秃的 `auth.isTeacher`
+   * 已经在三个地方各错过一次（HomePage、LiveSessions、CoursewareDetailPage），
+   * 症状都是**管理员被当成学生**、功能静默消失。有一个语义明确的名字，
+   * 下一个写「教师能做的事」的人就不容易漏掉管理员。
+   *
+   * <p>⚠ 反过来也要小心：**只给管理员**的东西（管理端入口、跨教师管理）
+   * 仍然要用 isAdmin，不要图省事换成这个。
+   */
+  const isStaff = computed(() => isTeacher.value || isAdmin.value)
   const displayName = computed(() => user.value?.nickname || user.value?.username || '')
   const avatarText = computed(() => displayName.value.slice(0, 1) || '?')
   const roleText = computed(
@@ -106,6 +120,7 @@ export const useAuthStore = defineStore('auth', () => {
     role,
     isTeacher,
     isAdmin,
+    isStaff,
     displayName,
     avatarText,
     roleText,

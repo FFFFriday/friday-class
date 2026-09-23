@@ -105,12 +105,12 @@ const FORMAT_LABELS = { md: 'Markdown', txt: '文本', docx: 'Word', xlsx: 'Exce
 
 onMounted(async () => {
   const jobs = [loadCoursewares(), loadFolders(), loadFormats()]
-  // ⚠ 课堂下拉的接口是 GET /api/session/taught，它带着
-  //   @PreAuthorize("hasRole('TEACHER')") —— **管理员调用会 403**。
-  //   这不是能绕过的：那个接口的语义就是「我教过的课」，管理员没有这个集合。
-  //   所以只对教师拉取；管理员那边下拉直接禁用并说明原因，
-  //   而不是打一个注定 403 的请求、再弹一个看不懂的红字。
-  if (auth.isTeacher) {
+  // 课堂下拉的接口是 GET /api/session/taught。
+  // ⚠ 它原先带着 @PreAuthorize("hasRole('TEACHER')")，管理员调用会 403 ——
+  //   那时这里只能写 `if (auth.isTeacher)`，并给管理员一个禁用的下拉。
+  //   现在需求是「管理员是权限更大的教师」，那个接口已放行 ADMIN，
+  //   而管理员也能自己开课、确实可能「有教过的课」，所以这里改用 isStaff。
+  if (auth.isStaff) {
     jobs.push(loadSessions())
   }
   await Promise.all(jobs)
@@ -373,10 +373,10 @@ function humanSize(bytes) {
               id="ag-session"
               v-model="form.sessionId"
               class="field__select"
-              :disabled="!auth.isTeacher"
+              :disabled="!auth.isStaff"
             >
               <option value="">
-                {{ auth.isTeacher ? '不选（读不到课堂记录）' : '管理员账号没有自己的课堂' }}
+                {{ auth.isStaff ? '不选（读不到课堂记录）' : '学生账号没有自己的课堂' }}
               </option>
               <option v-for="s in sessions" :key="s.id" :value="s.id">
                 {{ s.title || '未命名课堂' }}

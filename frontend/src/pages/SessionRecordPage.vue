@@ -223,7 +223,7 @@ watch(sessionId, load, { immediate: true })
         <SummaryPanel
           v-else
           :session-id="sessionId"
-          :can-generate="auth.isTeacher || auth.isAdmin"
+          :can-generate="auth.isStaff"
         />
       </section>
     </template>
