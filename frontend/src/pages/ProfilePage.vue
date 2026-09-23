@@ -194,8 +194,8 @@ onMounted(load)
   font-size: 22px;
 }
 .card {
-  background: #fff;
-  border: 1px solid #eee;
+  background: var(--fc-bg-panel);
+  border: 1px solid var(--fc-border);
   border-radius: 8px;
   padding: 20px 24px;
 }
@@ -205,15 +205,17 @@ onMounted(load)
   align-items: center;
   gap: 8px;
 }
+/* 角色徽章是静态信息，不是「可操作」——所以不挂朱色，
+   用墨的最浅底 + 墨字（--fc-primary-bg 就是原 #fff3e6 的对位令牌）。 */
 .role {
   font-size: 12px;
-  color: #d97757;
-  background: #fff3e6;
+  color: var(--fc-primary);
+  background: var(--fc-primary-bg);
   padding: 2px 8px;
   border-radius: 20px;
 }
 .meta {
-  color: #999;
+  color: var(--fc-text-faint);
   font-size: 13px;
   margin-top: 6px;
 }
@@ -223,7 +225,7 @@ onMounted(load)
 }
 .tip {
   font-size: 13px;
-  color: #999;
+  color: var(--fc-text-faint);
   margin-bottom: 12px;
 }
 .form {
@@ -233,28 +235,28 @@ onMounted(load)
 }
 .form input {
   padding: 9px 12px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--fc-border-strong);
   border-radius: 6px;
   font-size: 14px;
 }
 .form input:focus {
   outline: none;
-  border-color: #d97757;
+  border-color: var(--fc-accent);
 }
 /* 两次密码不一致时给输入框本身一个红边，比只在下面写一行字更容易被看到 */
 .form input.input--bad {
-  border-color: #e74c3c;
+  border-color: var(--fc-danger);
 }
 .warn {
   font-size: 13px;
-  color: #e74c3c;
+  color: var(--fc-danger);
 }
 .btn {
   padding: 9px 16px;
   border: none;
   border-radius: 6px;
-  background: #d97757;
-  color: #fff;
+  background: var(--fc-primary);
+  color: var(--fc-text-invert);
   cursor: pointer;
   font-size: 14px;
   align-self: flex-start;
@@ -264,11 +266,11 @@ onMounted(load)
   cursor: not-allowed;
 }
 .empty {
-  color: #999;
+  color: var(--fc-text-faint);
   text-align: center;
   padding: 40px 0;
 }
 .error-text {
-  color: #e74c3c;
+  color: var(--fc-danger);
 }
 </style>

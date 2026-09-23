@@ -282,7 +282,11 @@ watch(() => route.params.sessionId, load, { immediate: true })
         <button class="btn" :disabled="jumping || currentPage <= 1" @click="goTo(currentPage - 1)">
           ← 上一页
         </button>
-        <span class="page-no">{{ currentPage }} / {{ totalPages || '?' }}</span>
+        <!-- 页眉 folio：当前页大、分母小。等宽 + tabular，翻页时宽度不跳。 -->
+        <span class="page-no">
+          <span class="page-no__now fc-num">{{ currentPage }}</span>
+          <span class="page-no__of fc-num">/ {{ totalPages || '?' }}</span>
+        </span>
         <button
           class="btn"
           :disabled="jumping || (totalPages > 0 && currentPage >= totalPages)"
@@ -493,6 +497,9 @@ watch(() => route.params.sessionId, load, { immediate: true })
   max-width: 1100px;
   margin: 0 auto;
 }
+
+/* 标题栏下面压一条发丝线，把「页眉」和「内容」分开——
+   文档的层次靠线，不靠阴影。 */
 .bar {
   display: flex;
   align-items: flex-start;
@@ -500,30 +507,41 @@ watch(() => route.params.sessionId, load, { immediate: true })
   gap: 16px;
   flex-wrap: wrap;
   margin-bottom: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--fc-border);
 }
 .title {
-  font-size: 20px;
+  font-size: var(--fc-font-lg);
   margin-bottom: 6px;
 }
 .sub {
-  font-size: 13px;
-  color: #999;
+  font-size: var(--fc-font-sm);
+  color: var(--fc-text-faint);
   display: flex;
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
 }
 .sep {
-  color: #ddd;
+  color: var(--fc-border-strong);
 }
+/* 课堂状态：**只有「直播中」才是「正在发生」**，才归朱色管。
+   已结束 / 未开始都是中性事实，用石墨色。
+   模板里本来就带了 `status-${status.toLowerCase()}` 修饰类
+   （status-live / status-not_started / status-ended），只是以前没有对应规则、
+   整个 .status 一个颜色。既然现在朱色有了明确语义，就得把这条区分补上——
+   否则一节早已结束的课会一直亮着「正在进行」的朱色。 */
 .status {
-  color: #d97757;
+  color: var(--fc-text-faint);
+}
+.status-live {
+  color: var(--fc-accent);
 }
 .ws-on {
-  color: #27ae60;
+  color: var(--fc-success);
 }
 .ws-off {
-  color: #e67e22;
+  color: var(--fc-warning);
 }
 .controls {
   display: flex;
@@ -532,16 +550,19 @@ watch(() => route.params.sessionId, load, { immediate: true })
 }
 .btn {
   padding: 9px 16px;
-  border: 1px solid #e5e5e5;
-  border-radius: 6px;
-  background: #fff;
-  color: #333;
+  border: 1px solid var(--fc-border-strong);
+  border-radius: var(--fc-radius);
+  background: var(--fc-bg-panel);
+  color: var(--fc-text);
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--fc-font);
+  transition: border-color var(--fc-transition), color var(--fc-transition),
+    background var(--fc-transition);
 }
+/* 悬停转朱：朱色的职责就是「你现在能点这里」 */
 .btn:hover:not(:disabled) {
-  border-color: #d97757;
-  color: #d97757;
+  border-color: var(--fc-accent);
+  color: var(--fc-accent);
 }
 .btn:disabled {
   opacity: 0.45;
@@ -677,31 +698,33 @@ watch(() => route.params.sessionId, load, { immediate: true })
   }
 }
 
-/* 下课是破坏性操作：用描边红，与橙色主色区分开，避免和「下一页」看成一类 */
+/* 下课是破坏性操作：用危险色描边，与「下一页」这类中性按钮区分开 */
 .btn-end {
   margin-left: 6px;
-  color: #c0392b;
-  border-color: #f3ddd4;
+  color: var(--fc-danger);
+  border-color: var(--fc-danger);
+  background: var(--fc-bg-panel);
 }
 
 .btn-end:hover:not(:disabled) {
-  border-color: #e74c3c;
-  color: #e74c3c;
+  background: var(--fc-danger-bg);
+  color: var(--fc-danger-dark);
+  border-color: var(--fc-danger-dark);
 }
 
 /* ── AI 解析提醒 ─────────────────────────────────────────────── */
 .ai-banner {
-  background: #fff;
-  border: 1px solid #eee;
-  border-radius: 8px;
+  background: var(--fc-bg-panel);
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius);
   padding: 12px 14px;
   margin-bottom: 12px;
 }
 
-/* 要老师动手时才上暖色边；正在解析时保持中性，不刺眼 */
+/* 要老师动手时才上警示色边；正在解析时保持中性，不刺眼 */
 .ai-banner.warn {
-  border-color: #f0d9b0;
-  background: #fffdf7;
+  border-color: var(--fc-warning-border);
+  background: var(--fc-warning-bg);
 }
 
 .ai-row {
@@ -712,52 +735,52 @@ watch(() => route.params.sessionId, load, { immediate: true })
 }
 
 .ai-label {
-  font-size: 13px;
-  font-weight: 600;
-  color: #333;
+  font-size: var(--fc-font-sm);
+  font-weight: var(--fc-weight-semibold);
+  color: var(--fc-text);
 }
 
 .ai-state {
-  font-size: 12px;
+  font-size: var(--fc-font-xs);
   padding: 3px 10px;
-  border-radius: 20px;
-  color: #d97757;
-  background: #fff3e6;
+  border-radius: var(--fc-radius-pill);
+  color: var(--fc-accent);
+  background: var(--fc-accent-bg);
 }
 
 .ai-hint {
   flex: 1;
   min-width: 200px;
-  font-size: 12px;
-  color: #999;
+  font-size: var(--fc-font-xs);
+  color: var(--fc-text-faint);
   line-height: 1.6;
 }
 
 /* 必须排在 .btn 之后：同为单类选择器，靠顺序覆盖内边距 */
 .ai-btn {
   padding: 6px 14px;
-  font-size: 13px;
+  font-size: var(--fc-font-sm);
 }
 
 .ai-bar {
   margin-top: 10px;
   height: 5px;
   border-radius: 3px;
-  background: #f0f0f0;
+  background: var(--fc-bg-muted);
   overflow: hidden;
 }
 
 .ai-bar-fill {
   height: 100%;
-  background: #d97757;
+  background: var(--fc-primary);
   /* 进度是每页跳一次的，加过渡让它看起来是「在走」而不是「在跳」 */
   transition: width 0.4s ease;
 }
 
 .ai-error {
   margin-top: 8px;
-  font-size: 12px;
-  color: #c0392b;
+  font-size: var(--fc-font-xs);
+  color: var(--fc-danger);
 }
 
 .ended-banner {
@@ -766,12 +789,12 @@ watch(() => route.params.sessionId, load, { immediate: true })
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
-  font-size: 13px;
-  color: #8a6d3b;
-  background: #fcf8e3;
-  border: 1px solid #faebcc;
+  font-size: var(--fc-font-sm);
+  color: var(--fc-warning-text);
+  background: var(--fc-warning-bg);
+  border: 1px solid var(--fc-warning-border);
   padding: 10px 14px;
-  border-radius: 8px;
+  border-radius: var(--fc-radius);
   margin-bottom: 12px;
 }
 
@@ -780,75 +803,92 @@ watch(() => route.params.sessionId, load, { immediate: true })
 .ended-banner__link {
   flex-shrink: 0;
   padding: 5px 12px;
-  border-radius: 7px;
-  background: #d97757;
-  color: #fff;
-  font-size: 12px;
+  border-radius: var(--fc-radius);
+  background: var(--fc-primary);
+  color: var(--fc-text-invert);
+  font-size: var(--fc-font-xs);
   text-decoration: none;
+  transition: background var(--fc-transition);
 }
 
 .ended-banner__link:hover {
-  background: #c9694a;
+  background: var(--fc-primary-hover);
+  color: var(--fc-text-invert);
 }
 
-/* PPT 是 16:9。用 aspect-ratio 而不是写死高度：窄屏时会等比缩小而不是拉伸变形 */
+/* PPT 是 16:9。用 aspect-ratio 而不是写死高度：窄屏时会等比缩小而不是拉伸变形。
+   边框交给 base.css 里全局的 img 内描边，这里不重复画。 */
 .slide-img {
   width: 100%;
   aspect-ratio: 16 / 9;
   object-fit: contain;
-  border: 1px solid #eee;
-  border-radius: 8px;
-  background: #fff;
+  border-radius: var(--fc-radius);
+  background: var(--fc-bg-panel);
   display: block;
 }
+
+/* ── 页眉 folio ─────────────────────────────────────────────── */
+/* 当前页大、分母小。这是全站的签名元素：页码在这个产品里是贯穿
+   老师屏幕、学生 AI、课后总结三者的主键，所以它该显眼。 */
 .page-no {
-  font-size: 14px;
-  color: #666;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
   min-width: 64px;
-  text-align: center;
-  font-variant-numeric: tabular-nums;
+  justify-content: center;
 }
+.page-no__now {
+  font-size: var(--fc-font-lg);
+  font-weight: var(--fc-weight-semibold);
+  line-height: 1;
+  color: var(--fc-text);
+}
+.page-no__of {
+  font-size: var(--fc-font-xs);
+  color: var(--fc-text-faint);
+}
+
 .jump {
   padding: 8px 10px;
-  border: 1px solid #e5e5e5;
-  border-radius: 6px;
-  font-size: 13px;
-  color: #666;
-  background: #fff;
+  border: 1px solid var(--fc-border-strong);
+  border-radius: var(--fc-radius);
+  font-size: var(--fc-font-sm);
+  color: var(--fc-text-muted);
+  background: var(--fc-bg-panel);
 }
 .msg {
-  font-size: 13px;
+  font-size: var(--fc-font-sm);
   margin-bottom: 12px;
   padding: 9px 12px;
-  border-radius: 6px;
+  border-radius: var(--fc-radius);
 }
 .msg-error {
-  color: #c0392b;
-  background: #fdf0ee;
+  color: var(--fc-danger-dark);
+  background: var(--fc-danger-bg);
 }
 .msg-warn {
-  color: #a06000;
-  background: #fff7e6;
+  color: var(--fc-warning-text);
+  background: var(--fc-warning-bg);
 }
 .slide-frame {
   width: 100%;
   height: 70vh;
   min-height: 420px;
-  border: 1px solid #eee;
-  border-radius: 8px;
-  background: #fff;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius);
+  background: var(--fc-bg-panel);
 }
 .hint {
   margin-top: 10px;
-  color: #999;
-  font-size: 12px;
+  color: var(--fc-text-faint);
+  font-size: var(--fc-font-xs);
 }
 .empty {
-  color: #999;
+  color: var(--fc-text-faint);
   text-align: center;
   padding: 60px 0;
 }
 .error-text {
-  color: #e74c3c;
+  color: var(--fc-danger);
 }
 </style>

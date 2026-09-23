@@ -388,13 +388,28 @@ watch(() => route.params.sessionId, load, { immediate: true })
   <div class="live">
     <header class="head">
       <h1 class="title">{{ session?.title || '直播课堂' }}</h1>
-      <div class="tags">
-        <span v-if="session" class="tag page">第 {{ currentPage }} 页</span>
-        <span v-if="hasVideo" class="tag live-tag">直播中</span>
-        <span v-if="ended" class="tag ended-tag">已结束</span>
-        <span v-else class="tag" :class="connected ? 'on' : 'off'">
-          {{ connected ? '实时同步中' : '重连中…' }}
+
+      <div class="head__right">
+        <!--
+          页眉 folio —— 学生端最该看清的一个数字。
+
+          因为它直接决定 AI 回答什么：本页的知识点、本页的预置提问，
+          都是按这个数字取的。以前它和「直播中」「重连中」挤在同一排小胶囊里，
+          大小一样、颜色一样，等于没说。
+          分母带兜底：pages 还没拉回来时显示 ?，不让它闪成 0。
+        -->
+        <span v-if="session" class="folio">
+          <span class="folio__no fc-num">{{ currentPage }}</span>
+          <span class="folio__of fc-num">/ {{ pages.length || '?' }}</span>
         </span>
+
+        <div class="tags">
+          <span v-if="hasVideo" class="tag live-tag">直播中</span>
+          <span v-if="ended" class="tag ended-tag">已结束</span>
+          <span v-else class="tag" :class="connected ? 'on' : 'off'">
+            {{ connected ? '实时同步中' : '重连中…' }}
+          </span>
+        </div>
       </div>
     </header>
 
@@ -565,17 +580,50 @@ watch(() => route.params.sessionId, load, { immediate: true })
   margin: 0 auto;
 }
 
+/* 页眉下面压一条发丝线，把「页眉」和「正文」分开——文档的层次靠线，不靠阴影。 */
 .head {
   display: flex;
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
   margin-bottom: 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--fc-border);
 }
 
 .title {
   font-size: var(--fc-font-xl);
   color: var(--fc-text);
+}
+
+/* margin-left:auto 把页码与状态推到右边。不用 justify-content: space-between——
+   窄屏换行时 space-between 会让第一行只有一个元素、孤零零贴着左边。 */
+.head__right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+/* ── 页眉 folio ─────────────────────────────────────────────── */
+/* 当前页大、分母小。等宽 + tabular，翻页时宽度不跳。 */
+.folio {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+}
+
+.folio__no {
+  font-size: var(--fc-font-xl);
+  font-weight: var(--fc-weight-semibold);
+  line-height: 1;
+  color: var(--fc-text);
+}
+
+.folio__of {
+  font-size: var(--fc-font-xs);
+  color: var(--fc-text-faint);
 }
 
 .tags {
@@ -590,11 +638,6 @@ watch(() => route.params.sessionId, load, { immediate: true })
   white-space: nowrap;
 }
 
-.tag.page {
-  color: var(--fc-primary);
-  background: var(--fc-primary-bg);
-}
-
 .tag.on {
   color: var(--fc-success);
   background: var(--fc-success-bg);
@@ -602,12 +645,14 @@ watch(() => route.params.sessionId, load, { immediate: true })
 
 .tag.off {
   color: var(--fc-warning);
-  background: var(--fc-primary-bg-weak);
+  background: var(--fc-warning-bg);
 }
 
+/* 「直播中」归朱色管——朱色的职责就是「正在发生」。
+   原来是危险红，和「删除 / 下课」撞色，看久了以为课堂出事了。 */
 .tag.live-tag {
   color: var(--fc-text-invert);
-  background: var(--fc-danger);
+  background: var(--fc-accent);
 }
 
 .ended-tag {

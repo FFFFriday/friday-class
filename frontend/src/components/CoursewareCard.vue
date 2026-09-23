@@ -76,16 +76,16 @@ const uploadedDate = computed(() => {
 .cw-card {
   display: flex;
   flex-direction: column;
-  background: #fff;
-  border: 1px solid #eee;
+  background: var(--fc-bg-panel);
+  border: 1px solid var(--fc-border);
   border-radius: 10px;
   overflow: hidden;
-  transition: box-shadow 0.18s ease, transform 0.18s ease;
+  transition: border-color 0.18s ease;
 }
 
+/* 悬停只把发丝线换成朱色。卡片不浮起来、不加投影——层次交给线。 */
 .cw-card:hover {
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.09);
-  transform: translateY(-2px);
+  border-color: var(--fc-accent);
 }
 
 /* 链接主体撑满卡片，卡片高度由 .body 的 flex:1 拉齐（一行卡片高度整齐） */
@@ -101,7 +101,7 @@ const uploadedDate = computed(() => {
   position: relative;
   height: 104px;
   padding: 18px 16px;
-  background: linear-gradient(135deg, #fdf6f2 0%, #f9e6dd 100%);
+  background: var(--fc-primary-bg);
   display: flex;
   align-items: flex-end;
 }
@@ -110,7 +110,7 @@ const uploadedDate = computed(() => {
   font-size: 22px;
   font-weight: 700;
   letter-spacing: 2px;
-  color: #d97757;
+  color: var(--fc-primary);
 }
 
 .status-pill {
@@ -121,18 +121,19 @@ const uploadedDate = computed(() => {
   line-height: 1;
   padding: 5px 9px;
   border-radius: 20px;
-  background: #fff3e6;
-  color: #e67e22;
+  /* 徽章是填充色块 → 用墨，只有「失败」才动危险色 */
+  background: var(--fc-primary);
+  color: var(--fc-text-invert);
 }
 
 .status-pill.parsed {
-  background: #e8f7ee;
-  color: #27ae60;
+  background: var(--fc-success-bg);
+  color: var(--fc-success);
 }
 
 .status-pill.failed {
-  background: #fdeaea;
-  color: #e74c3c;
+  background: var(--fc-danger-bg);
+  color: var(--fc-danger);
 }
 
 .body {
@@ -146,7 +147,7 @@ const uploadedDate = computed(() => {
 .name {
   font-size: 14px;
   font-weight: 600;
-  color: #333;
+  color: var(--fc-text);
   line-height: 1.4;
   /* 两行封顶，保证一行卡片高度整齐 */
   display: -webkit-box;
@@ -158,14 +159,17 @@ const uploadedDate = computed(() => {
 
 .meta {
   font-size: 12px;
-  color: #999;
+  color: var(--fc-text-faint);
   display: flex;
   gap: 5px;
+  /* 「N 页」是变化的数字，等宽免得同一行卡片参差 */
+  font-variant-numeric: tabular-nums;
 }
 
 .date {
   font-size: 12px;
-  color: #bbb;
+  color: var(--fc-text-faint);
+  font-variant-numeric: tabular-nums;
 }
 
 /* 底部操作区。只在调用方传了 action 插槽时渲染，所以默认的课件中心/学生首页

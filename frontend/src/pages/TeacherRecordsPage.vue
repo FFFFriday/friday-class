@@ -236,12 +236,12 @@ onMounted(load)
 .btn-mini--primary {
   border-color: var(--fc-primary);
   background: var(--fc-primary);
-  color: #fff;
+  color: var(--fc-text-invert);
 }
 
 .btn-mini--primary:hover {
   background: var(--fc-primary);
-  color: #fff;
+  color: var(--fc-text-invert);
   filter: brightness(0.94);
 }
 </style>

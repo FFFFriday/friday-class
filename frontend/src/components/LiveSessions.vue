@@ -114,17 +114,17 @@ onMounted(load)
 
 <style scoped>
 .live {
-  border: 1px solid #f3ddd4;
+  border: 1px solid var(--fc-border);
   border-radius: 12px;
   padding: 20px 22px;
   margin-bottom: 30px;
-  background: linear-gradient(180deg, #fff8f5 0%, #fffdfc 100%);
+  background: var(--fc-bg-panel);
 }
 
-/* 自己的课给一层更实的底色，一眼能和「别人的课」区分开 */
+/* 自己的课给一层朱色浅底，一眼能和「别人的课」区分开 */
 .live-mine {
-  background: linear-gradient(180deg, #fff1ea 0%, #fff8f5 100%);
-  border-color: #eccbbd;
+  background: var(--fc-accent-bg);
+  border-color: var(--fc-accent-border);
 }
 
 .live-head {
@@ -136,7 +136,7 @@ onMounted(load)
 
 .live-title {
   font-size: 17px;
-  color: #c9694a;
+  color: var(--fc-primary);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -145,8 +145,9 @@ onMounted(load)
 .dot {
   width: 8px;
   height: 8px;
-  border-radius: 50%;
-  background: #e74c3c;
+  /* 「正在发生」用朱色小方块标注，不做圆点 */
+  border-radius: 2px;
+  background: var(--fc-accent);
   animation: blink 1.4s infinite;
 }
 
@@ -163,7 +164,9 @@ onMounted(load)
 
 .live-count {
   font-size: 13px;
-  color: #b08b7c;
+  color: var(--fc-text-faint);
+  /* 节数会变，等宽数字免得换行时抖动 */
+  font-variant-numeric: tabular-nums;
 }
 
 .live-list {
@@ -178,23 +181,23 @@ onMounted(load)
   align-items: center;
   gap: 14px;
   padding: 12px 16px;
-  background: #fff;
-  border: 1px solid #f0e0d9;
+  background: var(--fc-bg-panel);
+  border: 1px solid var(--fc-border);
   border-radius: 8px;
   text-decoration: none;
   color: inherit;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition: border-color 0.15s;
 }
 
+/* 悬停只把发丝线换成朱色，不靠浮起来的阴影 */
 .live-item:hover {
-  border-color: #d97757;
-  box-shadow: 0 3px 12px rgba(217, 119, 87, 0.12);
+  border-color: var(--fc-accent);
 }
 
 .live-name {
   flex: 1;
   font-size: 14px;
-  color: #333;
+  color: var(--fc-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -202,13 +205,15 @@ onMounted(load)
 
 .live-meta {
   font-size: 13px;
-  color: #999;
+  color: var(--fc-text-faint);
   white-space: nowrap;
+  /* 「第 N 页」会随翻页变，等宽数字免得整行左右跳 */
+  font-variant-numeric: tabular-nums;
 }
 
 .live-go {
   font-size: 13px;
-  color: #d97757;
+  color: var(--fc-accent);
   white-space: nowrap;
 }
 </style>

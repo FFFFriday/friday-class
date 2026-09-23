@@ -219,19 +219,19 @@ onMounted(() => {
 
 .head {
   padding: 30px 0 26px;
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid var(--fc-border);
   margin-bottom: 26px;
 }
 
 .title {
   font-size: 26px;
-  color: #333;
+  color: var(--fc-text);
 }
 
 .sub {
   margin-top: 8px;
   font-size: 14px;
-  color: #999;
+  color: var(--fc-text-faint);
 }
 
 .section-head {
@@ -243,14 +243,14 @@ onMounted(() => {
 
 .section-title {
   font-size: 18px;
-  color: #333;
+  color: var(--fc-text);
 }
 
 /* 次级区与主区之间用一条线隔开，视觉上明确「这不是重点」 */
 .section-head--sub {
   margin-top: 44px;
   padding-top: 26px;
-  border-top: 1px solid #eee;
+  border-top: 1px solid var(--fc-border);
 }
 
 .toggle {
@@ -258,13 +258,15 @@ onMounted(() => {
   border: none;
   padding: 0;
   font-size: 13px;
-  color: #d97757;
+  color: var(--fc-accent);
   cursor: pointer;
 }
 
+/* 节数是会变的数字，等宽 */
 .count {
   font-size: 13px;
-  color: #999;
+  color: var(--fc-text-faint);
+  font-variant-numeric: tabular-nums;
 }
 
 .sessions {
@@ -279,9 +281,9 @@ onMounted(() => {
   align-items: center;
   gap: 14px;
   padding: 14px 16px;
-  border: 1px solid #eee;
+  border: 1px solid var(--fc-border);
   border-radius: 10px;
-  background: #fff;
+  background: var(--fc-bg-panel);
 }
 
 .session__main {
@@ -294,7 +296,7 @@ onMounted(() => {
 
 .session__title {
   font-size: 15px;
-  color: #333;
+  color: var(--fc-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -302,7 +304,7 @@ onMounted(() => {
 
 .session__meta {
   font-size: 12px;
-  color: #999;
+  color: var(--fc-text-faint);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -313,58 +315,62 @@ onMounted(() => {
   font-size: 12px;
   padding: 2px 8px;
   border-radius: 999px;
-  background: #f2f2f2;
-  color: #777;
+  background: var(--fc-bg-muted);
+  color: var(--fc-text-muted);
 }
 
+/* 「直播中」= 正在发生，正是朱色该出现的地方 */
 .session__status--LIVE {
-  background: #fdecea;
-  color: #e74c3c;
+  background: var(--fc-accent-bg);
+  color: var(--fc-accent);
 }
 
 .session__status--PAUSED {
-  background: #fff5e6;
-  color: #c98a2b;
+  background: var(--fc-warning-bg);
+  color: var(--fc-warning-text);
 }
 
 .session__wait {
   flex-shrink: 0;
   font-size: 12px;
-  color: #bbb;
+  color: var(--fc-text-faint);
 }
 
+/* 描边按钮：白底 + 发丝线，比实心按钮弱一级；悬停转朱提示「能点」 */
 .btn {
   flex-shrink: 0;
   padding: 6px 14px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--fc-border-strong);
   border-radius: 8px;
-  background: #fff;
+  background: var(--fc-bg-panel);
   font-size: 13px;
-  color: #333;
+  color: var(--fc-text);
   text-decoration: none;
   cursor: pointer;
 }
 
 .btn:hover {
-  border-color: #d97757;
-  color: #d97757;
+  border-color: var(--fc-accent);
+  color: var(--fc-accent);
 }
 
+/* 实心按钮：墨底反白 */
 .btn--primary {
-  border-color: #d97757;
-  background: #d97757;
-  color: #fff;
+  border-color: var(--fc-primary);
+  background: var(--fc-primary);
+  color: var(--fc-text-invert);
 }
 
 .btn--primary:hover {
-  background: #c9694a;
-  color: #fff;
+  border-color: var(--fc-primary-hover);
+  background: var(--fc-primary-hover);
+  color: var(--fc-text-invert);
 }
 
 .foot-note {
   margin-top: 14px;
   font-size: 12px;
-  color: #999;
+  color: var(--fc-text-faint);
 }
 
 .search-form {
@@ -375,15 +381,15 @@ onMounted(() => {
 .search {
   width: 100%;
   padding: 12px 16px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--fc-border-strong);
   border-radius: 8px;
   font-size: 14px;
-  background: #fff;
+  background: var(--fc-bg-panel);
 }
 
 .search:focus {
   outline: none;
-  border-color: #d97757;
+  border-color: var(--fc-accent);
 }
 
 .grid {
@@ -394,15 +400,16 @@ onMounted(() => {
 
 .hint {
   text-align: center;
-  color: #999;
+  color: var(--fc-text-faint);
   padding: 40px 0;
   font-size: 14px;
 }
 
 .error-text {
-  color: #e74c3c;
+  color: var(--fc-danger);
 }
 
+/* 页码是典型会变的数字，等宽免得翻页时左右跳 */
 .pager {
   display: flex;
   align-items: center;
@@ -410,22 +417,23 @@ onMounted(() => {
   gap: 16px;
   margin-top: 28px;
   font-size: 14px;
-  color: #666;
+  color: var(--fc-text-muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .pager button {
   padding: 8px 16px;
-  border: 1px solid #ddd;
-  background: #fff;
+  border: 1px solid var(--fc-border-strong);
+  background: var(--fc-bg-panel);
   border-radius: 8px;
   cursor: pointer;
   font-size: 14px;
-  color: #333;
+  color: var(--fc-text);
 }
 
 .pager button:hover:not(:disabled) {
-  border-color: #d97757;
-  color: #d97757;
+  border-color: var(--fc-accent);
+  color: var(--fc-accent);
 }
 
 .pager button:disabled {

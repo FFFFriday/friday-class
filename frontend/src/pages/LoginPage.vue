@@ -31,8 +31,6 @@ const { errors, checkRequired, checkAll, clearAll, clear } = useUserFormRules([
   'nickname',
 ])
 
-const features = ['课前：课件上传与逐页知识点解析', '课中：直播授课与翻页实时同步', '课后：自动生成课程总结']
-
 function switchMode(m) {
   mode.value = m
   error.value = ''
@@ -88,16 +86,17 @@ async function submit() {
 
 <template>
   <div class="login-wrap">
-    <aside class="brand-side">
-      <div class="brand-content">
-        <h1 class="brand-name">周五课堂</h1>
-        <p class="brand-tagline">智能教学互动平台</p>
-        <ul class="feature-list">
-          <li v-for="f in features" :key="f">
-            <span class="mark" />
-            <span>{{ f }}</span>
-          </li>
-        </ul>
+    <!-- 左半屏 = 讲义封面。
+         不放假插图、不放假文案：只有刊头、刊名、一条起手线、一行说明。
+         右上角那个「01」是页码脊的起点——这个产品里页码是贯穿全链的主键，
+         所以它从第一屏就该在场。 -->
+    <aside class="cover">
+      <span class="cover__folio fc-num" aria-hidden="true">01</span>
+
+      <div class="cover__block">
+        <h1 class="cover__name fc-display">周五课堂</h1>
+        <span class="cover__rule" aria-hidden="true"></span>
+        <p class="cover__tagline">智能教学互动平台</p>
       </div>
     </aside>
 
@@ -198,64 +197,80 @@ async function submit() {
 .login-wrap {
   min-height: 100vh;
   display: flex;
+  background: var(--fc-bg);
 }
 
-/* 左半屏：品牌区。纯渐变 + 排版，不用插图。 */
-.brand-side {
+/* ── 左半屏：讲义封面 ─────────────────────────────────────── */
+/* 原来这里是一整块陶土橙渐变 + 三条功能列表。
+   渐变是整站最像模板的一处，功能列表没人读——两样都砍了。
+   留下的是一张封面该有的东西：页码、刊名、起手线、说明。 */
+
+.cover {
   flex: 1;
+  position: relative;
   display: flex;
   align-items: center;
   padding: 64px;
-  background: linear-gradient(140deg, #d97757 0%, #e08d6a 55%, #efa98d 100%);
-  color: #fff;
+  /* 封面比内容区再深一档，靠一条发丝线与表单分开，不用渐变不用阴影 */
+  background: var(--fc-bg-muted);
+  border-right: 1px solid var(--fc-border);
 }
 
-.brand-content {
+/* 封面页码。等宽字体 + 等宽数字，故意做成「活页边签」的样子。 */
+.cover__folio {
+  position: absolute;
+  top: 40px;
+  left: 64px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  height: 44px;
+  padding: 0 10px;
+  border: 1px solid var(--fc-border-strong);
+  border-radius: var(--fc-radius-sm);
+  background: var(--fc-bg-panel);
+  font-size: 15px;
+  letter-spacing: 0.04em;
+  color: var(--fc-accent);
+}
+
+.cover__block {
   max-width: 420px;
 }
 
-.brand-name {
-  font-size: 38px;
-  font-weight: 700;
-  letter-spacing: 2px;
+.cover__name {
+  font-size: 46px;
+  font-weight: var(--fc-weight-bold);
+  line-height: 1.15;
+  letter-spacing: 0.12em;
+  color: var(--fc-ink);
+  /* 中文衬线带字距，是「封面刊名」的排法 */
+  text-indent: 0.12em; /* 抵消末字右侧字距，让视觉左边距对齐 */
 }
 
-.brand-tagline {
-  margin-top: 14px;
-  font-size: 16px;
-  opacity: 0.92;
-  letter-spacing: 1px;
+/* 起手线。比发丝线粗一点、短一点，像盖下去的一笔。 */
+.cover__rule {
+  display: block;
+  width: 48px;
+  height: 3px;
+  margin: 30px 0 18px;
+  background: var(--fc-accent);
 }
 
-.feature-list {
-  margin-top: 44px;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
+.cover__tagline {
+  font-size: 15px;
+  letter-spacing: 0.18em;
+  color: var(--fc-text-muted);
+  margin: 0;
 }
 
-.feature-list li {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 14px;
-  opacity: 0.95;
-}
+/* ── 右半屏：表单区 ───────────────────────────────────────── */
 
-.mark {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.9);
-  flex-shrink: 0;
-}
-
-/* 右半屏：表单区 */
 .form-side {
   width: 520px;
   flex-shrink: 0;
-  background: #fff;
+  background: var(--fc-bg-panel);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -269,38 +284,36 @@ async function submit() {
 
 .card-title {
   font-size: 24px;
-  color: #333;
+  color: var(--fc-text);
 }
 
 .card-sub {
   margin-top: 8px;
   font-size: 13px;
-  color: #999;
+  color: var(--fc-text-faint);
 }
 
 .tabs {
   display: flex;
   gap: 24px;
   margin: 26px 0 22px;
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid var(--fc-border);
 }
 
 .tabs button {
-  border: none;
-  background: transparent;
   padding: 0 0 10px;
-  cursor: pointer;
   font-size: 15px;
-  color: #999;
+  color: var(--fc-text-faint);
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
-  transition: color 0.15s, border-color 0.15s;
+  transition: color var(--fc-transition), border-color var(--fc-transition);
 }
 
+/* 当前页签用朱色：朱色的职责就是标「你现在在哪儿 / 能点什么」 */
 .tabs button.active {
-  color: #d97757;
-  border-bottom-color: #d97757;
-  font-weight: 600;
+  color: var(--fc-accent);
+  border-bottom-color: var(--fc-accent);
+  font-weight: var(--fc-weight-semibold);
 }
 
 form {
@@ -317,56 +330,57 @@ form {
 
 .label {
   font-size: 13px;
-  color: #666;
+  color: var(--fc-text-muted);
 }
 
 .field input {
   padding: 11px 13px;
-  border: 1px solid #ddd;
-  border-radius: 8px;
+  border: 1px solid var(--fc-border-strong);
+  border-radius: var(--fc-radius);
+  background: var(--fc-bg-panel);
   font-size: 14px;
-  transition: border-color 0.15s;
+  transition: border-color var(--fc-transition);
 }
 
 .field input:focus {
   outline: none;
-  border-color: #d97757;
+  border-color: var(--fc-primary);
 }
 
 /* 必填未过：红框。放在 :focus 之后，聚焦时也保持红——不然用户点回来改，
    红框消失、反而不知道是哪一项出问题了 */
 .field input.input--error,
 .field input.input--error:focus {
-  border-color: #e74c3c;
+  border-color: var(--fc-danger);
 }
 
 .field-error {
   font-size: 12px;
-  color: #e74c3c;
+  color: var(--fc-danger);
   line-height: 1.4;
 }
 
 .error {
-  color: #e74c3c;
+  color: var(--fc-danger);
   font-size: 13px;
   line-height: 1.5;
 }
 
+/* 主按钮是**墨色实心**，不是朱色。
+   朱色和危险红长得近，两个都当填充按钮用，用户会分不清「提交」和「删除」。 */
 .submit {
   margin-top: 6px;
   padding: 12px;
-  border: none;
-  border-radius: 8px;
-  background: #d97757;
-  color: #fff;
+  border-radius: var(--fc-radius);
+  background: var(--fc-primary);
+  color: var(--fc-text-invert);
   font-size: 15px;
-  letter-spacing: 1px;
-  cursor: pointer;
-  transition: background 0.15s;
+  letter-spacing: 0.08em;
+  transition: background var(--fc-transition);
 }
 
 .submit:hover:not(:disabled) {
-  background: #c9694a;
+  background: var(--fc-primary-hover);
 }
 
 .submit:disabled {
@@ -377,18 +391,58 @@ form {
 .foot-hint {
   margin-top: 18px;
   font-size: 12px;
-  color: #999;
+  color: var(--fc-text-faint);
   text-align: center;
 }
 
-/* 窄屏：品牌区让位，表单占满 */
+/* ── 窄屏 ─────────────────────────────────────────────────── */
+/* 原来是「封面直接 display:none」——手机上整站就没了品牌。
+   改成封面收成顶上一条，刊名与页码都还在。 */
+
 @media (max-width: 900px) {
-  .brand-side {
-    display: none;
+  .login-wrap {
+    flex-direction: column;
   }
+
+  .cover {
+    flex: none;
+    padding: 24px;
+    align-items: flex-start;
+    border-right: none;
+    border-bottom: 1px solid var(--fc-border);
+  }
+
+  .cover__folio {
+    position: static;
+    min-width: 36px;
+    height: 36px;
+    font-size: 13px;
+  }
+
+  .cover__block {
+    margin-top: 16px;
+  }
+
+  .cover__name {
+    font-size: 26px;
+    letter-spacing: 0.08em;
+    text-indent: 0.08em;
+  }
+
+  .cover__rule {
+    margin: 14px 0 10px;
+    width: 32px;
+    height: 2px;
+  }
+
+  .cover__tagline {
+    font-size: 13px;
+    letter-spacing: 0.12em;
+  }
+
   .form-side {
     width: 100%;
-    padding: 32px 24px;
+    padding: 32px 24px 48px;
   }
 }
 </style>

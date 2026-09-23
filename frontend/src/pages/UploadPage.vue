@@ -151,8 +151,8 @@ async function upload() {
   margin-bottom: 16px;
 }
 .box {
-  background: #fff;
-  border: 1px solid #eee;
+  background: var(--fc-bg-panel);
+  border: 1px solid var(--fc-border);
   border-radius: 8px;
   padding: 28px;
   display: flex;
@@ -162,30 +162,32 @@ async function upload() {
 .dropzone {
   position: relative;
   display: block;
-  border: 2px dashed #ddd;
+  border: 2px dashed var(--fc-border-strong);
   border-radius: 8px;
   padding: 32px 20px;
   text-align: center;
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
 }
+/* 悬停 / 聚焦 = 「这里能点」，描边转朱，底色只加一层几乎看不见的纸色 */
 .dropzone:hover,
 .dropzone:focus-within {
-  border-color: #d97757;
-  background: #fffaf8;
+  border-color: var(--fc-accent);
+  background: var(--fc-primary-bg-weak);
 }
+/* 拖拽中 = 「正在发生」，底色才真正上朱 */
 .dropzone.is-dragging {
-  border-color: #d97757;
-  background: #fff3ee;
+  border-color: var(--fc-accent);
+  background: var(--fc-accent-bg);
 }
 .dropzone.has-file {
   border-style: solid;
-  border-color: #d97757;
+  border-color: var(--fc-accent);
 }
 .dz-title {
   display: block;
   font-size: 15px;
-  color: #333;
+  color: var(--fc-text);
   font-weight: 500;
   word-break: break-all;
 }
@@ -193,7 +195,7 @@ async function upload() {
   display: block;
   margin-top: 6px;
   font-size: 13px;
-  color: #999;
+  color: var(--fc-text-faint);
 }
 /* 视觉隐藏但保留可聚焦 / 可被屏幕阅读器播报（不能用 display:none） */
 .dz-input {
@@ -207,12 +209,13 @@ async function upload() {
   white-space: nowrap;
   border: 0;
 }
+/* 全页唯一的实心按钮：墨底反白 */
 .btn {
   padding: 10px 18px;
   border: none;
   border-radius: 6px;
-  background: #d97757;
-  color: #fff;
+  background: var(--fc-primary);
+  color: var(--fc-text-invert);
   cursor: pointer;
   font-size: 14px;
   align-self: flex-start;
@@ -222,16 +225,16 @@ async function upload() {
   cursor: not-allowed;
 }
 .msg {
-  color: #27ae60;
+  color: var(--fc-success);
   font-size: 14px;
   line-height: 1.6;
   word-break: break-all;
 }
 .msg-error {
-  color: #e74c3c;
+  color: var(--fc-danger);
 }
 .hint {
-  color: #999;
+  color: var(--fc-text-faint);
   font-size: 13px;
 }
 </style>

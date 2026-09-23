@@ -523,13 +523,13 @@ function humanSize(bytes) {
 
 .agent__title {
   font-size: 22px;
-  color: #222;
+  color: var(--fc-text);
 }
 
 .agent__sub {
   margin-top: 6px;
   font-size: 13px;
-  color: #888;
+  color: var(--fc-text-faint);
 }
 
 .agent__body {
@@ -559,24 +559,25 @@ function humanSize(bytes) {
   display: block;
   margin-bottom: 5px;
   font-size: 12px;
-  color: #666;
+  color: var(--fc-text-muted);
 }
 
 .field__select,
 .field__input {
   width: 100%;
   padding: 8px 10px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--fc-border-strong);
   border-radius: 8px;
   font-size: 13px;
-  color: #333;
-  background: #fff;
+  color: var(--fc-text);
+  background: var(--fc-bg-panel);
 }
 
+/* 焦点线 = 「你现在正在这里操作」，用朱色，不用墨（墨是填充底的颜色） */
 .field__select:focus,
 .field__input:focus {
   outline: none;
-  border-color: #d97757;
+  border-color: var(--fc-accent);
 }
 
 .quick {
@@ -584,25 +585,27 @@ function humanSize(bytes) {
   width: 100%;
   margin-bottom: 8px;
   padding: 10px 12px;
-  border: 1px solid #e6e6e6;
+  border: 1px solid var(--fc-border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--fc-bg-panel);
   font-size: 13px;
-  color: #444;
+  color: var(--fc-text);
   text-align: left;
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s, color 0.15s;
 }
 
+/* 悬停与选中都是「朱」的语义：可点、且是当前项。朱在这里只出现在描边和文字上，
+   不做填充底 —— 填充底一律归墨。 */
 .quick:hover {
-  border-color: #d97757;
-  color: #d97757;
+  border-color: var(--fc-accent);
+  color: var(--fc-accent);
 }
 
 .quick--on {
-  border-color: #d97757;
-  background: #fdf6f2;
-  color: #d97757;
+  border-color: var(--fc-accent);
+  background: var(--fc-accent-bg);
+  color: var(--fc-accent);
   font-weight: 600;
 }
 
@@ -613,8 +616,8 @@ function humanSize(bytes) {
 }
 
 .compose {
-  background: #fff;
-  border: 1px solid #eee;
+  background: var(--fc-bg-panel);
+  border: 1px solid var(--fc-border);
   border-radius: 12px;
   padding: 12px 14px;
 }
@@ -632,14 +635,15 @@ function humanSize(bytes) {
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  color: #888;
+  color: var(--fc-text-faint);
 }
 
+/* 「正在发生」的呼吸点 —— 朱的正确形态：小、且在动 */
 .dot {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #d97757;
+  background: var(--fc-accent);
   animation: pulse 1.1s ease-in-out infinite;
 }
 
@@ -651,7 +655,7 @@ function humanSize(bytes) {
 .compose__input {
   width: 100%;
   padding: 10px 12px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--fc-border-strong);
   border-radius: 8px;
   font-size: 13px;
   font-family: inherit;
@@ -661,7 +665,7 @@ function humanSize(bytes) {
 
 .compose__input:focus {
   outline: none;
-  border-color: #d97757;
+  border-color: var(--fc-accent);
 }
 
 .chat {
@@ -669,8 +673,8 @@ function humanSize(bytes) {
   max-height: 460px;
   overflow-y: auto;
   padding: 14px;
-  background: #fff;
-  border: 1px solid #eee;
+  background: var(--fc-bg-panel);
+  border: 1px solid var(--fc-border);
   border-radius: 12px;
 }
 
@@ -680,33 +684,40 @@ function humanSize(bytes) {
 
 .msg__who {
   font-size: 12px;
-  color: #999;
+  color: var(--fc-text-faint);
   margin-bottom: 4px;
 }
 
+/*
+  气泡底用 --fc-bg-muted 而不是 --fc-bg：聊天气泡是「面板里的一小块」，
+  --fc-bg 是**页面**底色（#FBF9F6），铺在白面板上几乎看不见边界，
+  聊天的两栏结构会散掉。
+*/
 .msg__text {
   padding: 10px 12px;
   border-radius: 10px;
   font-size: 13px;
   line-height: 1.7;
-  color: #333;
+  color: var(--fc-text);
   white-space: pre-wrap;
   word-break: break-word;
-  background: #f7f7f8;
+  background: var(--fc-bg-muted);
 }
 
+/* 自己发的那条：填充底归墨（与按钮同一条规则），字反过来用深底上的白 */
 .msg--user .msg__text {
-  background: #fdf6f2;
+  background: var(--fc-primary);
+  color: var(--fc-text-invert);
 }
 
 .msg--error .msg__text {
-  background: #fdeaea;
-  color: #b93a2b;
+  background: var(--fc-danger-bg);
+  color: var(--fc-danger-dark);
 }
 
 .msg--warning .msg__text {
-  background: #fff7e6;
-  color: #8a5a00;
+  background: var(--fc-warning-bg);
+  color: var(--fc-warning-text);
 }
 
 .files {
@@ -718,7 +729,7 @@ function humanSize(bytes) {
   align-items: center;
   gap: 10px;
   padding: 10px 14px;
-  border-bottom: 1px solid #f4f4f4;
+  border-bottom: 1px solid var(--fc-border);
   font-size: 13px;
 }
 
@@ -732,12 +743,12 @@ function humanSize(bytes) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: #333;
+  color: var(--fc-text);
 }
 
 .files__meta {
   font-size: 12px;
-  color: #999;
+  color: var(--fc-text-faint);
 }
 
 @media (max-width: 900px) {

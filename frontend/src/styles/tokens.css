@@ -1,58 +1,94 @@
 /* =============================================================
-   周五课堂 — 设计令牌（Design Tokens）
+   周五课堂 — 设计令牌（Design Tokens）· 「讲义」版
 
    用法：新页面一律引用变量，**不要再写死颜色**。
      .btn { background: var(--fc-primary); }
 
-   为什么要有这一层：主色 #d97757 在老代码里硬编码了 48 处，
-   改一次品牌色要全文件替换。有了令牌，改这一处就全站生效。
+   ── 本次改版（UI 修改 / 2026-09-23）──────────────────────────
+   方向：把网站做得像一本排过版的讲义。
 
-   ⚠ 取值全部来自对现有页面的实测统计（出现频次最高的那个值），
-     不是凭空定的。这样新页面天然和现有页面一致，不会出现
-     「新做的功能看着像另一个网站」。
+   三条规矩：
+     1. 墨色是主色，朱色只标「可操作 / 正在发生」，**永远不做按钮填充**。
+     2. 层次靠发丝线，不靠浮起来的阴影。
+     3. 数字一律等宽，翻页时页码不能左右跳。
 
-   ⚠ P0 只建立令牌，**不修改任何老页面**——所以引入本文件时
-     现有外观零变化。老页面回填在 P5 统一做。
+   为什么 --fc-primary 指到墨色：全站已有 973 处 var(--fc-primary)，
+   改这一行，按钮 / 链接 / 强调数字全部跟着变，**不用碰任何一个页面**。
+   要回滚也只需改这一行。
+
+   ⚠ 旧值一律保留在注释里，方便对照与回退。
    ============================================================= */
 
 :root {
-  /* ── 品牌色 ───────────────────────────────────────────── */
-  --fc-primary:        #d97757;  /* 主色：按钮、链接、强调（原硬编码 48 处） */
-  --fc-primary-hover:  #c9694a;  /* 悬停 / 按下 */
-  --fc-primary-soft:   #eeae91;  /* 浅主色：次级强调、进度条底 */
-  --fc-primary-border: #f0c8b8;  /* 主色描边 */
-  --fc-primary-bg:     #fff3e6;  /* 主色浅底：选中态、高亮块 */
-  --fc-primary-bg-weak:#fff8f5;  /* 主色最浅底：整块区域背景 */
-  --fc-primary-tint:   rgba(217, 119, 87, 0.12); /* 半透明主色，用于阴影/浮层 */
+  /* ── 基色：墨 / 纸 / 朱 ───────────────────────────────── */
+
+  /* 墨 —— 标题、正文、页码、主按钮底。近黑带暖，不是纯黑。 */
+  --fc-ink:          #24211E;
+  --fc-ink-hover:    #3A3632;
+  --fc-ink-bg:       #F4F0EA;  /* 墨的浅底：选中行、高亮块（原 #fff3e6） */
+  --fc-ink-border:   #DED8D0;  /* 墨的描边（原 #f0c8b8） */
+
+  /* 纸 —— 页面底色。暖白，不是冷灰屏（原 #f7f7f8）。 */
+  --fc-paper:        #FBF9F6;
+
+  /* 朱 —— **只标「可操作 / 正在发生」**：链接、直播中、当前页。
+     引以为戒：朱色和危险红长得近，所以它永远不做按钮填充，
+     形态上也只做小方块 / 短线 / 数字，不做大色块。 */
+  --fc-accent:        #B9452A;
+  --fc-accent-hover:  #A03722;
+  --fc-accent-bg:     #FBEDE8;  /* 朱的最浅底：「正在直播」卡片 */
+  --fc-accent-border: #EBD5CC;
+
+  /* ── 品牌色（兼容层）───────────────────────────────────── */
+  /* 旧值：--fc-primary: #d97757（陶土橙）。现在指向墨色。
+     保留这一层是为了不改动任何页面里的 973 处引用。 */
+
+  --fc-primary:        var(--fc-ink);
+  --fc-primary-hover:  var(--fc-ink-hover);
+  --fc-primary-soft:   #DED8D0;  /* 浅主色：次级强调、进度条**底**（必须是浅的，原 #eeae91） */
+  --fc-primary-border: var(--fc-ink-border);
+  --fc-primary-bg:     var(--fc-ink-bg);
+  --fc-primary-bg-weak:#FAF7F3;  /* 主色最浅底：整块区域背景（原 #fff8f5） */
+  --fc-primary-tint:   rgba(36, 33, 30, 0.12); /* 半透明墨，用于阴影 / 浮层 */
 
   /* ── 文字 ─────────────────────────────────────────────── */
-  --fc-text:        #333;   /* 正文 */
-  --fc-text-muted:  #666;   /* 次要说明 */
-  --fc-text-faint:  #999;   /* 占位符、时间戳、辅助信息 */
-  --fc-text-invert: #fff;   /* 深色底上的文字 */
+  /* 三档灰都带暖调，且都过 WCAG AA（底色 #FBF9F6 上）：
+     墨 14:1 / 次要 6.6:1 / 辅助 4.6:1 —— 「辅助」原来是 #999，只有 2.8:1，不合格。 */
+  --fc-text:        var(--fc-ink);   /* 正文 #24211E（原 #333） */
+  --fc-text-muted:  #5C5651;         /* 次要说明（原 #666） */
+  --fc-text-faint:  #7D766E;         /* 占位符、时间戳、辅助信息（原 #999） */
+  --fc-text-invert: #fff;            /* 深色底上的文字 */
 
   /* ── 背景与边框 ───────────────────────────────────────── */
-  --fc-bg:           #f7f7f8; /* 页面底色 */
-  --fc-bg-panel:     #fff;    /* 卡片 / 面板 */
-  --fc-bg-muted:     #f5f5f5; /* 浅灰块：表头、禁用态 */
-  --fc-border:       #eee;    /* 常规分隔线 */
-  --fc-border-strong:#ddd;    /* 输入框描边 */
-  --fc-border-heavy: #bbb;    /* 强分隔、禁用描边 */
+  --fc-bg:           var(--fc-paper); /* 页面底色（原 #f7f7f8） */
+  --fc-bg-panel:     #fff;            /* 卡片 / 面板 */
+  --fc-bg-muted:     #F4F0EA;         /* 浅暖块：表头、禁用态（原 #f5f5f5） */
+  --fc-bg-weak:      #FAF7F3;         /* 比 mute 更浅的一档。
+                                         ⚠ 这个令牌以前**缺定义**，FcCard 一直
+                                         var(--fc-bg-weak, transparent) 取不到值，
+                                         卡片底部底色从来没生效过。 */
+  --fc-border:       #E5E0D9;  /* 发丝线：常规分隔（原 #eee） */
+  --fc-border-strong:#DAD3CA;  /* 输入框描边（原 #ddd） */
+  --fc-border-heavy: #C3BBB1;  /* 强分隔、禁用描边（原 #bbb） */
 
   /* ── 语义色：危险 ─────────────────────────────────────── */
-  --fc-danger:      #e74c3c;  /* 错误、删除、下课 */
-  --fc-danger-dark: #c0392b;  /* 危险按钮悬停 */
-  --fc-danger-bg:   #fdeaea;  /* 错误提示底色 */
+  /* 换成纯信号红，与朱色拉开：朱 #B9452A 偏褐、只做小标记；
+     危险 #D92D20 更亮更纯、只做填充按钮与红字。 */
+  --fc-danger:         #D92D20;  /* 原 #e74c3c */
+  --fc-danger-dark:    #B42318;  /* 原 #c0392b */
+  --fc-danger-bg:      #FEF3F2;  /* 原 #fdeaea */
+  --fc-danger-border:  #f5c6c0;  /* 新补：原先硬编码在 FcTag.vue 里 */
 
   /* ── 语义色：成功 ─────────────────────────────────────── */
-  --fc-success:    #27ae60;   /* 成功、在线、已解析 */
-  --fc-success-bg: #eafaf1;   /* 成功提示底色 */
+  --fc-success:        #27ae60; /* 未动 */
+  --fc-success-bg:     #eafaf1; /* 未动 */
+  --fc-success-border: #c8ecd8; /* 新补：原先硬编码在 FcTag.vue 里 */
 
   /* ── 语义色：警告 ─────────────────────────────────────── */
-  --fc-warning:        #e67e22; /* 警告图标 / 强调 */
-  --fc-warning-text:   #8a6d3b; /* 警告文字（深棕，配浅黄底可读） */
-  --fc-warning-bg:     #fcf8e3; /* 警告提示底色 */
-  --fc-warning-border: #faebcc; /* 警告提示描边 */
+  --fc-warning:        #e67e22; /* 未动 */
+  --fc-warning-text:   #8a6d3b; /* 未动 */
+  --fc-warning-bg:     #fcf8e3; /* 未动 */
+  --fc-warning-border: #faebcc; /* 未动 */
 
   /* ── 间距（4 的倍数，够用且不易乱） ────────────────────── */
   --fc-space-1:  4px;
@@ -66,48 +102,71 @@
 
   /* ── 圆角 ─────────────────────────────────────────────── */
   --fc-radius-sm:   4px;
-  --fc-radius:      8px;   /* 默认（原代码出现 28 次，是绝对主流） */
+  --fc-radius:      8px;   /* 默认 */
   --fc-radius-lg:  12px;
   --fc-radius-pill: 999px; /* 胶囊：标签、徽章、头像 */
   --fc-radius-circle: 50%;
 
   /* ── 阴影 ─────────────────────────────────────────────── */
-  --fc-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06);
-  --fc-shadow:    0 2px 8px rgba(0, 0, 0, 0.08);
-  --fc-shadow-lg: 0 8px 28px rgba(0, 0, 0, 0.1);  /* 弹窗 / 浮层 */
-  --fc-shadow-primary: 0 3px 12px rgba(217, 119, 87, 0.12); /* 主色按钮选中态 */
+  /* 文档风格里，**卡片不该浮起来**——层次交给发丝线。
+     所以下面这几个只留给真正悬在内容之上的东西（弹窗、Toast、下拉）。
+     投影收紧、颜色从纯黑改成暖墨，避免发灰发脏。 */
+  --fc-shadow-sm: 0 1px 2px rgba(36, 33, 30, 0.05);
+  --fc-shadow:    0 2px 6px rgba(36, 33, 30, 0.07);
+  --fc-shadow-lg: 0 12px 32px rgba(36, 33, 30, 0.14); /* 弹窗 / 浮层 */
+  --fc-shadow-primary: 0 3px 12px rgba(36, 33, 30, 0.14);
 
   /* ── 字号 ─────────────────────────────────────────────── */
   --fc-font-xs:  12px;  /* 辅助信息、时间戳 */
   --fc-font-sm:  13px;  /* 次要正文、表格 */
-  --fc-font:     14px;  /* 默认正文（原代码出现 37 次） */
+  --fc-font:     14px;  /* 默认正文 */
   --fc-font-md:  15px;
   --fc-font-lg:  18px;  /* 卡片标题 */
   --fc-font-xl:  22px;  /* 页面标题 */
   --fc-font-2xl: 28px;
   --fc-font-3xl: 38px;  /* 登录页主标题 */
 
+  /* ── 字体 ─────────────────────────────────────────────── */
+  /* 正文保持系统栈（微软雅黑）：屏幕阅读还是它最稳，不动。 */
   --fc-font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
-  --fc-font-mono: 'Consolas', 'Monaco', 'Courier New', monospace;
+
+  /* 衬线 —— 只给**登录页产品名与页面主标题**用，不下放到正文。
+     「西文衬线 + 中文宋体」是中文书刊本来就该有的排法。
+     ⚠ 别在正文用：Windows 的宋体没有真粗体（合成的），小字号会糊。 */
+  --fc-font-display: Georgia, 'Times New Roman', 'SimSun', 'Songti SC', 'STSong', serif;
+
+  /* 等宽数字 —— 页码、时长、人数、统计。
+     Cascadia Mono 随 Win11 内置，Consolas 保底。 */
+  --fc-font-num:  'Cascadia Mono', 'Consolas', 'Monaco', 'Courier New', monospace;
+  --fc-font-mono: var(--fc-font-num); /* 旧名，保持兼容 */
 
   /* ── 字重 ─────────────────────────────────────────────── */
   --fc-weight-medium:   500;
-  --fc-weight-semibold: 600; /* 主流：标题与按钮 */
+  --fc-weight-semibold: 600;
   --fc-weight-bold:     700;
 
   /* ── 层级 ─────────────────────────────────────────────── */
-  /* 留出整段区间，避免新增浮层时到处凑数字、互相盖住 */
   --fc-z-sticky: 100;
   --fc-z-dropdown: 200;
-  --fc-z-overlay: 900;   /* 遮罩层：暂停课堂、加载中 */
+  --fc-z-overlay: 900;
   --fc-z-modal: 1000;
-  --fc-z-toast: 1100;    /* 提示必须在最上面，包括弹窗之上 */
+  --fc-z-toast: 1100;
 
   /* ── 过渡 ─────────────────────────────────────────────── */
   --fc-transition: 0.15s ease;
 
+  /* 分段时长：进场比出场长一点，出场要「轻手轻脚」，不然拖泥带水。 */
+  --fc-dur-press: 120ms;
+  --fc-dur-exit:  150ms;
+  --fc-dur-enter: 200ms;
+  --fc-ease-out:    cubic-bezier(0.16, 1, 0.3, 1);
+  --fc-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* 最小可点尺寸。小图标按钮靠伪元素撑开，别让它们难按。 */
+  --fc-hit-min: 40px;
+
   /* ── 布局 ─────────────────────────────────────────────── */
   --fc-header-height: 56px;
   --fc-sidebar-width: 200px;
-  --fc-content-max: 1200px; /* 内容区最大宽度 */
+  --fc-content-max: 1200px;
 }

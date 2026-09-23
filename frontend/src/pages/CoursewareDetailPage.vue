@@ -278,21 +278,37 @@ watch(() => route.params.id, load, { immediate: true })
     <div v-else-if="error" class="hint error-text">{{ error }}</div>
 
     <div v-else class="body">
-      <aside class="page-list">
+      <!--
+        页码脊 —— 全站的签名元素。
+
+        这个产品里页码是贯穿全链的主键：知识点挂在页上、预置提问挂在页上、
+        学生问答记着页码、翻页同步广播的就是这个数字。所以它不该缩在角落写
+        「第 3 页」，而应该像讲义边上的索引签一样排成一列，一眼看得到自己在哪。
+
+        只显示数字（不写「第 N 页」）是为了让这一列真的像索引；
+        读屏器靠 aria-label 拿回完整语义。
+      -->
+      <nav class="spine" aria-label="页码">
         <button
           v-for="(p, i) in pages"
           :key="p.id"
-          class="page-item"
-          :class="{ active: i === current }"
+          class="spine__item fc-num"
+          :class="{ 'is-current': i === current }"
+          :aria-label="`第 ${p.pageNo} 页`"
+          :aria-current="i === current ? 'true' : undefined"
           @click="selectPage(i)"
         >
-          第 {{ p.pageNo }} 页
+          {{ p.pageNo }}
         </button>
-      </aside>
+      </nav>
 
       <section class="preview">
         <template v-if="currentPage">
-          <h2 class="page-no">第 {{ currentPage.pageNo }} 页</h2>
+          <!-- 页眉 folio：大号码 + 分母。翻页时数字宽度不变（等宽 + tabular）。 -->
+          <h2 class="folio">
+            <span class="folio__no fc-num">{{ currentPage.pageNo }}</span>
+            <span class="folio__of fc-num">/ {{ pages.length }}</span>
+          </h2>
           <!--
             这里显示的是后端真正渲染出来的整页 PPT 图片（图片、配色、排版都还原），
             不是把文字倒进白底 div 的那份 HTML。后者仍保留为图片失败时的兜底。
@@ -377,14 +393,15 @@ watch(() => route.params.id, load, { immediate: true })
 }
 
 .heading {
-  font-size: 22px;
-  color: #333;
+  font-size: var(--fc-font-xl);
+  color: var(--fc-text);
 }
 
 .meta {
   margin-top: 8px;
-  font-size: 13px;
-  color: #999;
+  font-size: var(--fc-font-sm);
+  color: var(--fc-text-faint);
+  font-variant-numeric: tabular-nums;
 }
 
 .actions {
@@ -398,17 +415,20 @@ watch(() => route.params.id, load, { immediate: true })
   align-items: center;
   gap: 7px;
   padding: 10px 18px;
-  border-radius: 8px;
-  font-size: 14px;
+  border-radius: var(--fc-radius);
+  font-size: var(--fc-font);
   cursor: pointer;
   border: 1px solid transparent;
   text-decoration: none;
   white-space: nowrap;
+  transition: background var(--fc-transition), border-color var(--fc-transition),
+    color var(--fc-transition);
 }
 
+/* 主操作是墨色实心。朱色不做填充——它和危险红太像，两个都当按钮用户会分不清。 */
 .btn.primary {
-  background: #d97757;
-  color: #fff;
+  background: var(--fc-primary);
+  color: var(--fc-text-invert);
 }
 
 .btn.primary:disabled {
@@ -416,28 +436,35 @@ watch(() => route.params.id, load, { immediate: true })
   cursor: not-allowed;
 }
 
+/* 直播入口：朱色描边，表示「此刻正在进行」 */
 .btn.live {
-  background: #fff;
-  color: #c0392b;
-  border-color: #f3ddd4;
+  background: var(--fc-bg-panel);
+  color: var(--fc-accent);
+  border-color: var(--fc-accent-border);
 }
 
-/* 问 AI：描边主色，与实心的「开始上课」区分开，不抢主操作 */
+.btn.live:hover {
+  background: var(--fc-accent-bg);
+}
+
+/* 问 AI：墨色描边，与实心的「开始上课」区分开，不抢主操作 */
 .btn.ask {
-  background: #fff;
-  color: #d97757;
-  border-color: #f0c8b8;
+  background: var(--fc-bg-panel);
+  color: var(--fc-text);
+  border-color: var(--fc-border-strong);
 }
 
 .btn.ask:hover {
-  background: #fff3e6;
+  border-color: var(--fc-ink);
+  background: var(--fc-bg-muted);
 }
 
+/* 直播中的活点：小方块，朱色。闪烁保留（它确实在说「正在进行」）。 */
 .dot {
   width: 7px;
   height: 7px;
-  border-radius: 50%;
-  background: #e74c3c;
+  border-radius: 2px;
+  background: var(--fc-accent);
   animation: blink 1.4s infinite;
 }
 
@@ -451,11 +478,17 @@ watch(() => route.params.id, load, { immediate: true })
   }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .dot {
+    animation: none;
+  }
+}
+
 /* ── AI 解析面板 ─────────────────────────────────────────────── */
 .parse {
-  background: #fff;
-  border: 1px solid #eee;
-  border-radius: 10px;
+  background: var(--fc-bg-panel);
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius);
   padding: 16px 18px;
   margin-bottom: 16px;
 }
@@ -467,58 +500,58 @@ watch(() => route.params.id, load, { immediate: true })
 }
 
 .parse-name {
-  font-size: 14px;
-  color: #333;
-  font-weight: 600;
+  font-size: var(--fc-font);
+  color: var(--fc-text);
+  font-weight: var(--fc-weight-semibold);
 }
 
 .parse-state {
-  font-size: 12px;
+  font-size: var(--fc-font-xs);
   padding: 3px 10px;
-  border-radius: 20px;
-  color: #888;
-  background: #f5f5f5;
+  border-radius: var(--fc-radius-pill);
+  color: var(--fc-text-muted);
+  background: var(--fc-bg-muted);
 }
 
 .parse-state.ok {
-  color: #27ae60;
-  background: #eafaf1;
+  color: var(--fc-success);
+  background: var(--fc-success-bg);
 }
 
 .parse-state.run {
-  color: #d97757;
-  background: #fff3e6;
+  color: var(--fc-accent);
+  background: var(--fc-accent-bg);
 }
 
 .parse-state.warn {
-  color: #a06000;
-  background: #fff7e6;
+  color: var(--fc-warning-text);
+  background: var(--fc-warning-bg);
 }
 
 .bar {
   margin-top: 12px;
   height: 6px;
   border-radius: 3px;
-  background: #f0f0f0;
+  background: var(--fc-bg-muted);
   overflow: hidden;
 }
 
 .bar-fill {
   height: 100%;
-  background: #d97757;
+  background: var(--fc-primary);
   /* 进度是每页跳一次的，加过渡让它看起来是「在走」而不是「在跳」 */
   transition: width 0.4s ease;
 }
 
 .parse-hint {
   margin-top: 10px;
-  font-size: 13px;
-  color: #999;
+  font-size: var(--fc-font-sm);
+  color: var(--fc-text-faint);
   line-height: 1.7;
 }
 
 .parse-hint.warn {
-  color: #a06000;
+  color: var(--fc-warning-text);
 }
 
 .parse-actions {
@@ -530,15 +563,15 @@ watch(() => route.params.id, load, { immediate: true })
 }
 
 .parse-tip {
-  font-size: 12px;
-  color: #bbb;
+  font-size: var(--fc-font-xs);
+  color: var(--fc-text-faint);
 }
 
 /* ── 当前页的知识点 / 预置提问 ───────────────────────────────── */
 .kp {
   margin-top: 18px;
   padding-top: 16px;
-  border-top: 1px dashed #eee;
+  border-top: 1px solid var(--fc-border);
   display: flex;
   gap: 28px;
   flex-wrap: wrap;
@@ -549,10 +582,23 @@ watch(() => route.params.id, load, { immediate: true })
   min-width: 240px;
 }
 
+/* 「知识点 ─────────」：标签 + 一条撑满的发丝线。
+   这条线不是装饰——它把小标题和正文明确分开，替代了原来靠颜色区分的老办法。 */
 .kp-title {
-  font-size: 13px;
-  color: #d97757;
-  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--fc-font-sm);
+  color: var(--fc-text);
+  font-weight: var(--fc-weight-semibold);
+  margin-bottom: 10px;
+}
+
+.kp-title::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--fc-border);
 }
 
 .kp-list {
@@ -563,13 +609,15 @@ watch(() => route.params.id, load, { immediate: true })
 }
 
 .kp-list li {
-  font-size: 13px;
-  color: #555;
+  font-size: var(--fc-font-sm);
+  color: var(--fc-text-muted);
   line-height: 1.7;
   padding-left: 14px;
   position: relative;
 }
 
+/* 项目符号用石墨色小方点。不用朱色——知识点一列五六条，
+   每条都点朱色就把「朱色=此刻」这个规矩冲淡了。 */
 .kp-list li::before {
   content: '';
   position: absolute;
@@ -577,16 +625,16 @@ watch(() => route.params.id, load, { immediate: true })
   top: 9px;
   width: 4px;
   height: 4px;
-  border-radius: 50%;
-  background: #e5c3b3;
+  border-radius: 1px;
+  background: var(--fc-text-faint);
 }
 
 .kp-empty {
   margin-top: 16px;
   padding-top: 14px;
-  border-top: 1px dashed #eee;
-  font-size: 13px;
-  color: #bbb;
+  border-top: 1px solid var(--fc-border);
+  font-size: var(--fc-font-sm);
+  color: var(--fc-text-faint);
   line-height: 1.7;
 }
 
@@ -595,50 +643,128 @@ watch(() => route.params.id, load, { immediate: true })
   gap: 18px;
 }
 
-.page-list {
-  width: 140px;
+/* ── 页码脊 ─────────────────────────────────────────────────── */
+/* 讲义边上那排索引签。整列就是一条竖脊，用发丝线分格，
+   当前页在左侧压一道朱色竖条——不是靠加粗或变色去「喊」。 */
+
+.spine {
+  width: 76px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  align-self: flex-start;
   max-height: 70vh;
   overflow-y: auto;
+  background: var(--fc-bg-panel);
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius);
 }
 
-.page-item {
-  padding: 10px 12px;
-  border: 1px solid #eee;
-  background: #fff;
-  border-radius: 8px;
-  cursor: pointer;
-  text-align: left;
-  font-size: 14px;
-  color: #666;
+.spine__item {
+  position: relative;
+  padding: 11px 0;
+  text-align: center;
+  font-size: var(--fc-font);
+  color: var(--fc-text-faint);
+  border-bottom: 1px solid var(--fc-border);
+  transition: color var(--fc-transition), background var(--fc-transition);
 }
 
-.page-item:hover {
-  border-color: #f0c8b8;
+.spine__item:last-child {
+  border-bottom: none;
 }
 
-.page-item.active {
-  border-color: #d97757;
-  color: #d97757;
-  font-weight: 600;
+.spine__item:hover {
+  color: var(--fc-ink);
+  background: var(--fc-bg-muted);
+}
+
+.spine__item.is-current {
+  color: var(--fc-accent);
+  font-weight: var(--fc-weight-semibold);
+  background: var(--fc-accent-bg);
+}
+
+.spine__item.is-current::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--fc-accent);
+}
+
+/* 页码脊在窄屏从「竖脊」摊成「网格」——内容比索引重要，不占满整屏高度。 */
+@media (max-width: 720px) {
+  .body {
+    flex-direction: column;
+  }
+
+  /* 用 grid 而不是 flex-wrap：flex 的最后一行会被 flex-grow 拉宽，
+     出现「73、74 两个格子占了三格宽」的参差。grid 的 auto-fill 每格等宽。 */
+  .spine {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(46px, 1fr));
+    width: 100%;
+    max-height: none;
+    align-self: stretch;
+    background: var(--fc-bg-panel);
+    /* 裁掉格子里的直角，让它们跟着容器的圆角走 */
+    overflow: hidden;
+  }
+
+  .spine__item {
+    padding: 9px 4px;
+    border-bottom: none;
+    border-radius: 0;
+    background: var(--fc-bg-panel);
+    /* 发丝线画在**格子自己内部**（inset 阴影），而不是靠容器底色从 gap 里透出来——
+       后者会让页数除不尽时右下角的空格子露出一块灰底。 */
+    box-shadow: inset -1px -1px 0 var(--fc-border);
+  }
+
+  /* 当前页的标记从「左竖条」转成「下横条」——横排之后左边不再是一条脊 */
+  .spine__item.is-current::before {
+    left: 0;
+    right: 0;
+    top: auto;
+    bottom: 0;
+    width: auto;
+    height: 3px;
+  }
 }
 
 .preview {
   flex: 1;
   min-width: 0;
-  background: #fff;
-  border: 1px solid #eee;
-  border-radius: 10px;
+  background: var(--fc-bg-panel);
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius);
   padding: 20px 22px;
 }
 
-.page-no {
-  font-size: 15px;
-  color: #333;
+/* ── 页眉 folio ─────────────────────────────────────────────── */
+/* 大号码 + 分母。等宽 + tabular-nums，翻页时数字宽度不跳动。 */
+.folio {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
   margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--fc-border);
+  font-weight: var(--fc-weight-semibold);
+}
+
+.folio__no {
+  font-size: var(--fc-font-2xl);
+  line-height: 1;
+  color: var(--fc-text);
+}
+
+.folio__of {
+  font-size: var(--fc-font-sm);
+  color: var(--fc-text-faint);
 }
 
 .slide {
@@ -646,9 +772,8 @@ watch(() => route.params.id, load, { immediate: true })
   /* PPT 是 16:9。写死高度会把它压变形 */
   aspect-ratio: 16 / 9;
   object-fit: contain;
-  border: 1px solid #eee;
-  border-radius: 8px;
-  background: #fff;
+  border-radius: var(--fc-radius);
+  background: var(--fc-bg-panel);
   display: block;
 }
 
@@ -656,25 +781,25 @@ watch(() => route.params.id, load, { immediate: true })
   margin-top: 16px;
   max-height: 200px;
   overflow-y: auto;
-  font-size: 14px;
+  font-size: var(--fc-font);
   line-height: 1.8;
-  color: #444;
+  color: var(--fc-text-muted);
   white-space: pre-wrap;
 }
 
 .muted {
-  color: #bbb;
+  color: var(--fc-text-faint);
 }
 
 .hint {
   text-align: center;
-  color: #999;
+  color: var(--fc-text-faint);
   padding: 60px 0;
-  font-size: 14px;
+  font-size: var(--fc-font);
 }
 
 .error-text {
-  color: #e74c3c;
+  color: var(--fc-danger);
 }
 
 </style>

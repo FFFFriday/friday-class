@@ -40,11 +40,14 @@ defineProps({
   border: 1px solid var(--fc-border);
   border-radius: var(--fc-radius);
   overflow: hidden;
-  transition: box-shadow var(--fc-transition), border-color var(--fc-transition);
+  /* 「讲义」方向：层次靠发丝线，卡片不浮起来 —— 只过渡真正会变的边框色。
+     （原先这里还过渡 box-shadow 并带一个悬停投影，已随阴影一起去掉，
+       transition 留着不管它只会白等一个永不变化的属性。） */
+  transition: border-color var(--fc-transition);
 }
 
+/* 可点击卡片仍要有反馈，只是改用描边而不是抬起来 */
 .fc-card--hoverable:hover {
-  box-shadow: var(--fc-shadow);
   border-color: var(--fc-primary-border);
 }
 

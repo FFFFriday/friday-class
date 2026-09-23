@@ -33,12 +33,12 @@ const auth = useAuthStore()
 <style scoped>
 .loading {
   text-align: center;
-  color: #999;
+  color: var(--fc-text-faint);
   padding: 80px 0;
   font-size: 14px;
 }
 
 .loading.error {
-  color: #e74c3c;
+  color: var(--fc-danger);
 }
 </style>

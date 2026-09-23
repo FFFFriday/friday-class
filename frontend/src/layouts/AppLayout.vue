@@ -149,8 +149,8 @@ watch(() => route.fullPath, () => {
   position: sticky;
   top: 0;
   z-index: 50;
-  background: #fff;
-  border-bottom: 1px solid #eee;
+  background: var(--fc-bg-panel);
+  border-bottom: 1px solid var(--fc-border);
 }
 
 /* 顶栏内容与页面内容同宽居中，纵向才对得齐 */
@@ -167,7 +167,7 @@ watch(() => route.fullPath, () => {
 .brand {
   font-size: 18px;
   font-weight: 700;
-  color: #d97757;
+  color: var(--fc-primary);
   text-decoration: none;
   letter-spacing: 0.5px;
   white-space: nowrap;
@@ -184,7 +184,7 @@ watch(() => route.fullPath, () => {
   padding: 8px 14px;
   border-radius: 8px;
   font-size: 14px;
-  color: #555;
+  color: var(--fc-text-muted);
   text-decoration: none;
   /* 不折行。默认的 white-space:normal 在窄屏下会把「课件中心」断成
      「课件中 / 心」—— 菜单项本来就只有两三个字，断在哪一行都很难看。 */
@@ -193,12 +193,12 @@ watch(() => route.fullPath, () => {
 }
 
 .nav-link:hover {
-  color: #d97757;
-  background: #fdf6f2;
+  color: var(--fc-accent);
+  background: var(--fc-primary-bg-weak);
 }
 
 .nav-link.active {
-  color: #d97757;
+  color: var(--fc-accent);
   font-weight: 600;
 }
 
@@ -209,18 +209,18 @@ watch(() => route.fullPath, () => {
 .search input {
   width: 200px;
   padding: 8px 14px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--fc-border-strong);
   border-radius: 20px;
   font-size: 13px;
-  background: #f7f7f8;
+  background: var(--fc-bg);
   transition: width 0.2s, border-color 0.15s, background 0.15s;
 }
 
 .search input:focus {
   outline: none;
   width: 240px;
-  border-color: #d97757;
-  background: #fff;
+  border-color: var(--fc-accent);
+  background: var(--fc-bg-panel);
 }
 
 .account {
@@ -240,15 +240,15 @@ watch(() => route.fullPath, () => {
 }
 
 .account-btn:hover {
-  background: #f5f5f5;
+  background: var(--fc-bg-muted);
 }
 
 .avatar {
   width: 30px;
   height: 30px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #d97757, #eeae91);
-  color: #fff;
+  background: var(--fc-primary);
+  color: var(--fc-text-invert);
   font-size: 13px;
   font-weight: 600;
   display: flex;
@@ -258,7 +258,7 @@ watch(() => route.fullPath, () => {
 
 .who {
   font-size: 14px;
-  color: #333;
+  color: var(--fc-text);
   max-width: 96px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -267,7 +267,7 @@ watch(() => route.fullPath, () => {
 
 .caret {
   font-size: 10px;
-  color: #999;
+  color: var(--fc-text-faint);
 }
 
 .backdrop {
@@ -282,24 +282,24 @@ watch(() => route.fullPath, () => {
   right: 0;
   z-index: 100;
   width: 176px;
-  background: #fff;
-  border: 1px solid #eee;
+  background: var(--fc-bg-panel);
+  border: 1px solid var(--fc-border);
   border-radius: 10px;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--fc-shadow-lg);
   overflow: hidden;
   padding: 6px;
 }
 
 .menu-head {
   padding: 10px 12px 12px;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--fc-border);
   margin-bottom: 6px;
 }
 
 .menu-name {
   font-size: 14px;
   font-weight: 600;
-  color: #333;
+  color: var(--fc-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -308,7 +308,7 @@ watch(() => route.fullPath, () => {
 .menu-role {
   margin-top: 3px;
   font-size: 12px;
-  color: #d97757;
+  color: var(--fc-primary);
 }
 
 .menu-item {
@@ -320,21 +320,21 @@ watch(() => route.fullPath, () => {
   background: transparent;
   border-radius: 6px;
   font-size: 14px;
-  color: #333;
+  color: var(--fc-text);
   text-decoration: none;
   cursor: pointer;
 }
 
 .menu-item:hover {
-  background: #f5f5f5;
+  background: var(--fc-bg-muted);
 }
 
 .menu-item.danger {
-  color: #e74c3c;
+  color: var(--fc-danger);
 }
 
 .menu-item.danger:hover {
-  background: #fdeaea;
+  background: var(--fc-danger-bg);
 }
 
 .content {

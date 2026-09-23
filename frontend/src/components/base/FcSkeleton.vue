@@ -46,10 +46,12 @@ function toSize(value) {
   /* 用渐变扫动而不是逐个元素做 animation-delay：
      多个骨架共用同一个动画周期，看起来是「一束光扫过整块列表」，
      比各自为政的闪烁干净得多。 */
+  /* 扫光的中段改用发丝线色（暖调），别用冷灰——
+     冷灰插在暖底里扫过去会发青，像屏幕上有一道反光。 */
   background: linear-gradient(
     90deg,
     var(--fc-bg-muted) 25%,
-    #ebebeb 37%,
+    var(--fc-border) 37%,
     var(--fc-bg-muted) 63%
   );
   background-size: 400% 100%;

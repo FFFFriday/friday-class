@@ -214,8 +214,9 @@ onMounted(() => {
   border-radius: 14px;
   padding: 40px 44px;
   margin-bottom: 34px;
-  background: linear-gradient(120deg, #d97757 0%, #e08d6a 55%, #eeae91 100%);
-  color: #fff;
+  background: var(--fc-bg-panel);
+  border: 1px solid var(--fc-border);
+  color: var(--fc-text);
 }
 
 .banner-title {
@@ -226,7 +227,7 @@ onMounted(() => {
 .banner-sub {
   margin-top: 10px;
   font-size: 15px;
-  opacity: 0.92;
+  color: var(--fc-text-muted);
 }
 
 .banner-actions {
@@ -251,25 +252,25 @@ onMounted(() => {
   transition: background 0.15s, color 0.15s;
 }
 
-/* 白底橙字，压在橙色横幅上对比度足够 */
+/* 实心按钮：墨底反白，是这一页唯一的「主操作」 */
 .btn.solid {
-  background: #fff;
-  color: #c9694a;
+  background: var(--fc-primary);
+  color: var(--fc-text-invert);
   font-weight: 600;
 }
 
 .btn.solid:hover {
-  background: #fdf1ec;
+  background: var(--fc-primary-hover);
 }
 
-/* 描边按钮：半透明白边，比实心按钮弱一级 */
+/* 描边按钮：透明底 + 发丝线，比实心按钮弱一级；悬停转朱提示「能点」 */
 .btn.ghost {
-  border: 1px solid rgba(255, 255, 255, 0.75);
-  color: #fff;
+  border: 1px solid var(--fc-border-strong);
+  color: var(--fc-text);
 }
 
 .btn.ghost:hover {
-  background: rgba(255, 255, 255, 0.15);
+  color: var(--fc-accent);
 }
 
 .section {
@@ -285,17 +286,17 @@ onMounted(() => {
 
 .section-title {
   font-size: 18px;
-  color: #333;
+  color: var(--fc-text);
 }
 
 .more {
   font-size: 13px;
-  color: #999;
+  color: var(--fc-text-faint);
   text-decoration: none;
 }
 
 .more:hover {
-  color: #d97757;
+  color: var(--fc-accent);
 }
 
 .row {
@@ -307,11 +308,11 @@ onMounted(() => {
 .empty {
   padding: 22px 0;
   font-size: 14px;
-  color: #999;
+  color: var(--fc-text-faint);
 }
 
 .link {
-  color: #d97757;
+  color: var(--fc-accent);
   text-decoration: none;
 }
 
@@ -328,74 +329,79 @@ onMounted(() => {
   align-items: center;
   gap: 12px;
   padding: 11px 14px;
-  border: 1px solid #eee;
+  border: 1px solid var(--fc-border);
   border-radius: 10px;
-  background: #fff;
+  background: var(--fc-bg-panel);
 }
 
 .lesson__title {
   flex: 1;
   min-width: 0;
   font-size: 14px;
-  color: #333;
+  color: var(--fc-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+/* 时间是会变的数字，等宽免得每次渲染左右跳 */
 .lesson__meta {
   font-size: 12px;
-  color: #bbb;
+  color: var(--fc-text-faint);
+  font-variant-numeric: tabular-nums;
 }
 
 .lesson__status {
   flex-shrink: 0;
   font-size: 12px;
-  color: #999;
+  color: var(--fc-text-faint);
 }
 
 .lesson__more {
   margin-top: 10px;
   font-size: 12px;
-  color: #999;
+  color: var(--fc-text-faint);
+  font-variant-numeric: tabular-nums;
 }
 
 .btn-mini {
   flex-shrink: 0;
   padding: 5px 12px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--fc-border-strong);
   border-radius: 7px;
-  background: #fff;
+  background: var(--fc-bg-panel);
   font-size: 12px;
-  color: #333;
+  color: var(--fc-text);
   text-decoration: none;
 }
 
 .btn-mini:hover {
-  border-color: #d97757;
-  color: #d97757;
+  border-color: var(--fc-accent);
+  color: var(--fc-accent);
 }
 
+/* 实心小按钮：墨底反白 */
 .btn-mini--primary {
-  border-color: #d97757;
-  background: #d97757;
-  color: #fff;
+  border-color: var(--fc-primary);
+  background: var(--fc-primary);
+  color: var(--fc-text-invert);
 }
 
 .btn-mini--primary:hover {
-  background: #c9694a;
-  color: #fff;
+  border-color: var(--fc-primary-hover);
+  background: var(--fc-primary-hover);
+  color: var(--fc-text-invert);
 }
 
 .hint {
   text-align: center;
-  color: #999;
+  color: var(--fc-text-faint);
   padding: 60px 0;
   font-size: 14px;
 }
 
 .error-text {
-  color: #e74c3c;
+  color: var(--fc-danger);
 }
 
 /* 窄屏收成两列，避免四列卡片被挤成竖条 */

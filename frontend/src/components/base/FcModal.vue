@@ -137,7 +137,8 @@ onBeforeUnmount(unbind)
 .fc-modal__mask {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.45);
+  /* 暖墨遮罩：纯黑压在暖白纸面上会发灰发脏，改用与 --fc-ink 同源的暖墨 */
+  background: rgba(36, 33, 30, 0.45);
 }
 
 .fc-modal__panel {

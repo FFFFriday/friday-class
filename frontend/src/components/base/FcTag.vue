@@ -48,7 +48,7 @@ defineProps({
 .fc-tag--success {
   background: var(--fc-success-bg);
   color: var(--fc-success);
-  border-color: #c8ecd8;
+  border-color: var(--fc-success-border);
 }
 
 .fc-tag--warning {
@@ -60,6 +60,6 @@ defineProps({
 .fc-tag--danger {
   background: var(--fc-danger-bg);
   color: var(--fc-danger);
-  border-color: #f5c6c0;
+  border-color: var(--fc-danger-border);
 }
 </style>

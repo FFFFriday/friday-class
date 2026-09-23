@@ -133,13 +133,13 @@ onMounted(() => {
 
 .heading {
   font-size: 22px;
-  color: #333;
+  color: var(--fc-text);
 }
 
 .sub {
   margin-top: 6px;
   font-size: 13px;
-  color: #999;
+  color: var(--fc-text-faint);
 }
 
 .toolbar {
@@ -151,37 +151,39 @@ onMounted(() => {
 .search {
   flex: 1;
   padding: 10px 14px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--fc-border-strong);
   border-radius: 8px;
   font-size: 14px;
 }
 
 .select {
   padding: 10px 12px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--fc-border-strong);
   border-radius: 8px;
   font-size: 14px;
-  color: #333;
+  color: var(--fc-text);
 }
 
+/* 聚焦 = 正在操作，用朱色点一下 */
 .search:focus,
 .select:focus {
   outline: none;
-  border-color: #d97757;
+  border-color: var(--fc-accent);
 }
 
+/* 实心按钮：墨底反白 */
 .btn {
   padding: 10px 22px;
   border: none;
   border-radius: 8px;
-  background: #d97757;
-  color: #fff;
+  background: var(--fc-primary);
+  color: var(--fc-text-invert);
   cursor: pointer;
   font-size: 14px;
 }
 
 .btn:hover {
-  background: #c9694a;
+  background: var(--fc-primary-hover);
 }
 
 .grid {
@@ -192,15 +194,16 @@ onMounted(() => {
 
 .hint {
   text-align: center;
-  color: #999;
+  color: var(--fc-text-faint);
   padding: 60px 0;
   font-size: 14px;
 }
 
 .error-text {
-  color: #e74c3c;
+  color: var(--fc-danger);
 }
 
+/* 「第 N 页 · 共 N 个」是会变的数字，等宽免得翻页时左右跳 */
 .pager {
   display: flex;
   align-items: center;
@@ -208,22 +211,23 @@ onMounted(() => {
   gap: 16px;
   margin-top: 28px;
   font-size: 14px;
-  color: #666;
+  color: var(--fc-text-muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .pager button {
   padding: 8px 16px;
-  border: 1px solid #ddd;
-  background: #fff;
+  border: 1px solid var(--fc-border-strong);
+  background: var(--fc-bg-panel);
   border-radius: 8px;
   cursor: pointer;
   font-size: 14px;
-  color: #333;
+  color: var(--fc-text);
 }
 
 .pager button:hover:not(:disabled) {
-  border-color: #d97757;
-  color: #d97757;
+  border-color: var(--fc-accent);
+  color: var(--fc-accent);
 }
 
 .pager button:disabled {
