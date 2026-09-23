@@ -109,10 +109,17 @@ onMounted(() => {
         <h1 class="banner-title">你好，{{ auth.displayName }}</h1>
         <p class="banner-sub">今天想上哪一节课？</p>
         <!-- 按修改文档3 定的三个按钮，顺序是「要干的事」在前：
-             开始上课 → 班级管理（备课）→ 上传课件（备料）。 -->
+             开始上课 → 班级管理（备课）→ 上传课件（备料）。
+             管理员共用这一页（管理员 = 权限更大的教师），但「班级管理」分流：
+             管理员要看的是**全部**班级，教师看的是**自己**的班。 -->
         <div class="banner-actions">
           <button class="btn solid" type="button" @click="openStart()">开始上课</button>
-          <router-link class="btn ghost" to="/teacher/classes">班级管理</router-link>
+          <router-link
+            class="btn ghost"
+            :to="auth.isAdmin ? '/admin/classes' : '/teacher/classes'"
+          >
+            班级管理
+          </router-link>
           <router-link class="btn ghost" to="/upload">上传课件</router-link>
         </div>
       </div>

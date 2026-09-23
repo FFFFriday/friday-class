@@ -4,6 +4,7 @@ import { computed, onMounted, ref } from 'vue'
 import http from '@/api/http'
 import { useToast } from '@/composables/useToast'
 import { confirm } from '@/composables/useConfirm'
+import { useBulkDelete } from '@/composables/useBulkDelete'
 import { FcButton, FcCard, FcLoading, FcTable } from '@/components/base'
 
 const toast = useToast()
@@ -24,6 +25,8 @@ const orphansLoading = ref(false)
 const picked = ref(new Set())
 
 const columns = [
+  // 勾选列没有标题（表头放的是「全选」复选框，见 #header-select）
+  { key: 'select', title: '', width: '44px' },
   { key: 'name', title: '课件' },
   { key: 'pageCount', title: '页数', width: '70px' },
   { key: 'uploaderName', title: '上传者', width: '110px' },
@@ -43,6 +46,9 @@ function formatBytes(bytes) {
 async function load() {
   loading.value = true
   error.value = ''
+  // 换页后行整批换掉，旧的勾选必须清空 ——
+  // 否则「已选 3 项」里混着上一页的行，批量删除会删掉用户根本没看见的课件。
+  clearRowPicks()
   try {
     const [data, st] = await Promise.all([
       http.get('/admin/coursewares', { params: { page: page.value, size } }),
@@ -65,6 +71,11 @@ function goPage(delta) {
   load()
 }
 
+/** 真正的那一次删除请求。单条与批量**共用同一个函数体**，两条路走同一个后端接口。 */
+function deleteCourseware(row) {
+  return http.delete(`/admin/coursewares/${row.id}`)
+}
+
 async function removeCourseware(row) {
   const ok = await confirm({
     title: '删除课件',
@@ -78,7 +89,7 @@ async function removeCourseware(row) {
   if (!ok) return
   busy.value = true
   try {
-    const report = await http.delete(`/admin/coursewares/${row.id}`)
+    const report = await deleteCourseware(row)
     toast.success(
       `已删除。源文件${report.sourceRemoved ? '已清理' : '未找到'}，` +
         `幻灯片清理 ${report.slidesRemoved} 个文件`,
@@ -90,6 +101,28 @@ async function removeCourseware(row) {
     busy.value = false
   }
 }
+
+// ⚠ 这里**必须给解构出来的名字起别名**：本页上面已经有一组 picked / pickedCount /
+// togglePick，是「孤立文件清理」在用的（选的是路径，不是课件 id）。
+// 不换名字就会把那组覆盖掉，孤立清理会静默失效。
+const {
+  picked: rowPicked,
+  pickedCount: rowPickedCount,
+  allPicked: allRowsPicked,
+  removing: removingRows,
+  togglePick: toggleRowPick,
+  toggleAll: toggleAllRows,
+  clearPicked: clearRowPicks,
+  removePicked: removePickedRows,
+} = useBulkDelete({
+  rows,
+  idOf: (row) => row.id,
+  nameOf: (row) => row.name,
+  removeOne: deleteCourseware,
+  noun: '个课件',
+  note: '会同时清理三处：数据库记录、源 .pptx 文件、以及该课件的幻灯片目录。此操作不可撤销。',
+  onDone: load,
+})
 
 async function reparse(row) {
   const ok = await confirm({
@@ -173,7 +206,20 @@ onMounted(load)
   <div class="page">
     <header class="page__head">
       <h1 class="page__title">课件与存储</h1>
-      <FcButton variant="secondary" size="sm" @click="load">刷新</FcButton>
+      <div class="page__ops">
+        <!-- 没勾选时不显示：一个永远是灰的按钮只是噪音。
+             课件删除会真的删掉磁盘上的文件，确认框里写明这一点。 -->
+        <FcButton
+          v-if="rowPickedCount"
+          variant="danger"
+          size="sm"
+          :loading="removingRows"
+          @click="removePickedRows"
+        >
+          删除选中（{{ rowPickedCount }}）
+        </FcButton>
+        <FcButton variant="secondary" size="sm" @click="load">刷新</FcButton>
+      </div>
     </header>
 
     <div v-if="storage" class="stats">
@@ -203,6 +249,26 @@ onMounted(load)
 
     <FcCard padding="none">
       <FcTable :columns="columns" :rows="rows" :loading="loading" empty-text="还没有课件">
+        <template #header-select>
+          <input
+            type="checkbox"
+            class="row-pick"
+            :checked="allRowsPicked"
+            :aria-label="allRowsPicked ? '取消全选本页' : '全选本页'"
+            @change="toggleAllRows"
+          />
+        </template>
+
+        <template #cell-select="{ row }">
+          <input
+            type="checkbox"
+            class="row-pick"
+            :checked="rowPicked.has(row.id)"
+            :aria-label="`选择课件 ${row.name}`"
+            @change="toggleRowPick(row.id)"
+          />
+        </template>
+
         <!--
           课件名做成链接：管理员在这个列表里看到课件，十有八九是想点进去看解析进度、
           知识点或提问，而不是只想读一遍名字。详情页 /courseware/:id 只要求登录、
@@ -323,6 +389,24 @@ onMounted(load)
   align-items: center;
   justify-content: space-between;
   margin-bottom: var(--fc-space-5);
+}
+
+/* 标题右侧的操作区：批量删除按钮出现时，它和「刷新」要并排且留间距 */
+.page__ops {
+  display: flex;
+  align-items: center;
+  gap: var(--fc-space-2);
+}
+
+/* 表格里行的勾选框。浏览器默认只有 13px 左右偏小，给到 16px。
+   名字用 .row-pick 而不是 .pick：ClassGroupManager 里 .pick 已被别的东西占用，
+   三页统一用同一个名字，改的时候不容易漏。 */
+.row-pick {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--fc-primary);
+  cursor: pointer;
+  vertical-align: middle;
 }
 
 .page__title {

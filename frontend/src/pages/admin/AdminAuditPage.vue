@@ -1,5 +1,6 @@
 <script setup>
-// 管理端：审计日志。只做「查」——写入统一走后端 AdminAuditService.record。
+// 管理端：操作日志（对外文案；后端类名仍叫 AdminAudit*，不改是刻意的 ——
+// 改类名/表名要牵动迁移脚本与接口契约，收益为零）。只做「查」，写入统一走后端 AdminAuditService.record。
 import { onMounted, reactive, ref } from 'vue'
 import http from '@/api/http'
 import { FcButton, FcCard, FcTable } from '@/components/base'
@@ -80,7 +81,7 @@ onMounted(load)
 <template>
   <div class="page">
     <header class="page__head">
-      <h1 class="page__title">审计日志</h1>
+      <h1 class="page__title">操作日志</h1>
       <FcButton variant="secondary" size="sm" @click="load">刷新</FcButton>
     </header>
 
@@ -103,7 +104,7 @@ onMounted(load)
 
       <p v-if="error" class="page__err" role="alert">{{ error }}</p>
 
-      <FcTable :columns="columns" :rows="rows" :loading="loading" empty-text="还没有审计记录">
+      <FcTable :columns="columns" :rows="rows" :loading="loading" empty-text="还没有操作记录">
         <template #cell-createdAt="{ row }">
           <span class="dim">{{ formatTime(row.createdAt) }}</span>
         </template>
@@ -145,7 +146,7 @@ onMounted(load)
     </div>
 
     <p class="note">
-      审计日志只增不改，也没有删除入口——它的价值就在于「当时发生了什么」这个事实本身。
+      操作日志只增不改，也没有删除入口——它的价值就在于「当时发生了什么」这个事实本身。
       按需求，这里只做「写 + 查」，不配图表与统计。
     </p>
   </div>

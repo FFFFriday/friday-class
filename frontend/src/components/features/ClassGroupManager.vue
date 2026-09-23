@@ -13,6 +13,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import http from '@/api/http'
 import { useToast } from '@/composables/useToast'
 import { confirm } from '@/composables/useConfirm'
+import { useBulkDelete } from '@/composables/useBulkDelete'
 import { FcButton, FcCard, FcEmptyState, FcInput, FcLoading, FcModal, FcTable } from '@/components/base'
 
 const props = defineProps({
@@ -37,7 +38,12 @@ const loading = ref(false)
 const error = ref('')
 
 const columns = computed(() => {
-  const base = [{ key: 'name', title: '班级' }, { key: 'description', title: '备注' }]
+  const base = [
+    // 勾选列没有标题（表头放的是「全选」复选框，见 #header-select）
+    { key: 'select', title: '', width: '44px' },
+    { key: 'name', title: '班级' },
+    { key: 'description', title: '备注' },
+  ]
   if (props.admin) {
     base.push({ key: 'teacherName', title: '所属教师', width: '120px' })
   }
@@ -57,6 +63,9 @@ function formatTime(value) {
 async function load() {
   loading.value = true
   error.value = ''
+  // 换页 / 改筛选之后行整批换掉，旧的勾选必须清空 ——
+  // 否则「已选 3 项」里混着上一页的行，批量删除会删掉用户根本没看见的班级。
+  clearRowPicks()
   try {
     const params = { page: page.value, size }
     if (keyword.value.trim()) params.keyword = keyword.value.trim()
@@ -187,6 +196,11 @@ async function submitForm() {
   }
 }
 
+/** 真正的那一次删除请求。单条与批量**共用同一个函数体**，两条路走同一个后端接口。 */
+function deleteGroup(row) {
+  return http.delete(`${API}/${row.id}`)
+}
+
 async function removeGroup(row) {
   const ok = await confirm({
     title: '删除班级',
@@ -199,13 +213,36 @@ async function removeGroup(row) {
   })
   if (!ok) return
   try {
-    await http.delete(`${API}/${row.id}`)
+    await deleteGroup(row)
     toast.success('已删除')
     load()
   } catch (e) {
     toast.error(e.message || '删除失败')
   }
 }
+
+// ⚠ 解构出来**必须起别名**：下面「加人」弹窗里已经有一组 picked / pickedCount /
+// togglePick（选的是学生 id，不是班级 id）。不换名字会把那组覆盖掉 —— 构建期就会
+// 报「Identifier 'picked' has already been declared」，这个坑在 AdminCoursewarePage
+// 里一模一样地存在（那边是孤立文件清理）。
+const {
+  picked: rowPicked,
+  pickedCount: rowPickedCount,
+  allPicked: allRowsPicked,
+  removing: removingRows,
+  togglePick: toggleRowPick,
+  toggleAll: toggleAllRows,
+  clearPicked: clearRowPicks,
+  removePicked: removePickedRows,
+} = useBulkDelete({
+  rows,
+  idOf: (row) => row.id,
+  nameOf: (row) => row.name,
+  removeOne: deleteGroup,
+  noun: '个班级',
+  note: '这是软删除：班里的学生记录与已经上过的课都保留，学生照常能回顾以前上过的课。',
+  onDone: load,
+})
 
 // ── 班级详情（成员 + 已开课）─────────────────────────────────
 const detailOpen = ref(false)
@@ -345,12 +382,24 @@ onMounted(() => {
         <p class="page__sub">
           {{
             admin
-              ? '全部教师的班级，可跨教师改名、加人、删班（都会记审计）。'
+              ? '全部教师的班级，可跨教师改名、加人、删班（都会记入操作日志）。'
               : '建班、加人。上课时在课件详情页选择「给哪个班上」。'
           }}
         </p>
       </div>
-      <FcButton @click="openCreate">＋ 新建班级</FcButton>
+      <div class="page__ops">
+        <!-- 没勾选时不显示：一个永远是灰的按钮只是噪音。
+             按钮上带条数，省得用户自己数「我到底选了几个」。 -->
+        <FcButton
+          v-if="rowPickedCount"
+          variant="danger"
+          :loading="removingRows"
+          @click="removePickedRows"
+        >
+          删除选中（{{ rowPickedCount }}）
+        </FcButton>
+        <FcButton @click="openCreate">＋ 新建班级</FcButton>
+      </div>
     </header>
 
     <FcCard padding="none">
@@ -375,6 +424,26 @@ onMounted(() => {
       <p v-if="error" class="page__err" role="alert">{{ error }}</p>
 
       <FcTable :columns="columns" :rows="rows" :loading="loading" empty-text="还没有班级，先建一个">
+        <template #header-select>
+          <input
+            type="checkbox"
+            class="row-pick"
+            :checked="allRowsPicked"
+            :aria-label="allRowsPicked ? '取消全选本页' : '全选本页'"
+            @change="toggleAllRows"
+          />
+        </template>
+
+        <template #cell-select="{ row }">
+          <input
+            type="checkbox"
+            class="row-pick"
+            :checked="rowPicked.has(row.id)"
+            :aria-label="`选择班级 ${row.name}`"
+            @change="toggleRowPick(row.id)"
+          />
+        </template>
+
         <template #cell-description="{ row }">
           <span class="dim">{{ row.description || '—' }}</span>
         </template>
@@ -546,6 +615,24 @@ onMounted(() => {
   margin-top: var(--fc-space-1);
   font-size: var(--fc-font-sm);
   color: var(--fc-text-muted);
+}
+
+/* 标题右侧的操作区：批量删除按钮出现时，两个按钮要并排且留间距 */
+.page__ops {
+  display: flex;
+  align-items: center;
+  gap: var(--fc-space-2);
+}
+
+/* 表格里行的勾选框。
+   ⚠ 名字**不能叫 .pick** —— 这个文件里 .pick/.pick__label 已经被「班主任下拉框」占了。
+   浏览器默认尺寸只有 13px 左右，在表格里偏小，给到 16px。 */
+.row-pick {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--fc-primary);
+  cursor: pointer;
+  vertical-align: middle;
 }
 
 .filters {

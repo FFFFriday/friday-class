@@ -1,7 +1,7 @@
 <script setup>
 // 登录后的首页。本身不画界面，只按角色分发：
-//   教师 → TeacherHome（慕课分节型：欢迎横幅 + 我的课件 + 全部课件）
-//   学生 → StudentHome（课程中心型：浏览全部公开课件）
+//   教师、管理员 → TeacherHome（慕课分节型：欢迎横幅 + 我的课件 + 全部课件）
+//   学生         → StudentHome（课程中心型：浏览全部公开课件）
 //
 // 布局（顶栏）是同一套 AppLayout，只是菜单项按角色增删；
 // 首页内容因为两种角色要的东西根本不同，所以拆成两个组件，而不是在一个文件里塞满 v-if。
@@ -23,7 +23,10 @@ const auth = useAuthStore()
     取不到账号信息，请确认后端服务已启动后刷新页面重试
   </div>
 
-  <TeacherHome v-else-if="auth.isTeacher" />
+  <!-- 管理员走教师首页：需求是「管理员是权限更大的教师」。
+       后端也相应把 /session/mine、/session/taught 等接口放行了 ADMIN，
+       否则这一页会拉到 403、「我的课堂」整块报错。 -->
+  <TeacherHome v-else-if="auth.isTeacher || auth.isAdmin" />
   <StudentHome v-else />
 </template>
 

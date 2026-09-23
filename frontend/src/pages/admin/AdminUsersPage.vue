@@ -5,6 +5,7 @@ import http from '@/api/http'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
 import { confirm, prompt } from '@/composables/useConfirm'
+import { useBulkDelete } from '@/composables/useBulkDelete'
 import { useUserFormRules } from '@/composables/useUserFormRules'
 import { FcButton, FcCard, FcEmptyState, FcInput, FcModal, FcTable, FcTag } from '@/components/base'
 
@@ -21,6 +22,8 @@ const error = ref('')
 const filters = reactive({ keyword: '', role: '', disabled: '' })
 
 const columns = [
+  // 勾选列没有标题（表头放的是「全选」复选框，见 #header-select）
+  { key: 'select', title: '', width: '44px' },
   { key: 'username', title: '用户名' },
   { key: 'nickname', title: '昵称' },
   { key: 'role', title: '角色', width: '90px' },
@@ -35,6 +38,9 @@ const ROLE_TAG = { TEACHER: 'primary', STUDENT: 'default', ADMIN: 'danger' }
 async function load() {
   loading.value = true
   error.value = ''
+  // 换页 / 改筛选之后行会整批换掉，旧的勾选必须清空 ——
+  // 否则「已选 3 项」里混着上一页的行，批量删除会删掉用户根本没看见的账号。
+  clearPicked()
   try {
     const params = { page: page.value, size }
     if (filters.keyword.trim()) params.keyword = filters.keyword.trim()
@@ -172,6 +178,14 @@ async function changeRole(row) {
   }
 }
 
+/**
+ * 真正的那一次删除请求。单条删除与批量删除**共用这一个函数体**，
+ * 两条路走同一个后端接口 —— 不会出现「单个能删、批量删不掉」这种分歧。
+ */
+function deleteOne(row) {
+  return http.delete(`/admin/users/${row.id}`)
+}
+
 async function removeUser(row) {
   const ok = await confirm({
     title: '删除账号',
@@ -181,13 +195,35 @@ async function removeUser(row) {
   })
   if (!ok) return
   try {
-    await http.delete(`/admin/users/${row.id}`)
+    await deleteOne(row)
     toast.success('已删除')
     load()
   } catch (e) {
     toast.error(e.message || '删除失败')
   }
 }
+
+const {
+  picked,
+  pickedCount,
+  allPicked,
+  removing,
+  togglePick,
+  toggleAll,
+  clearPicked,
+  removePicked,
+} = useBulkDelete({
+  rows,
+  idOf: (row) => row.id,
+  nameOf: (row) => row.username,
+  removeOne: deleteOne,
+  noun: '个账号',
+  note: '这是软删除：他们的课件、问答与发言记录都会保留，只是不再出现在列表里、也无法登录。',
+  // 后端本来就会拒绝「删自己」，但让用户先勾上、点了才被拒，体验是差的 ——
+  // 这里直接让那一行选不了。
+  canPick: (row) => row.id !== auth.user?.id,
+  onDone: load,
+})
 
 onMounted(load)
 </script>
@@ -196,7 +232,14 @@ onMounted(load)
   <div class="page">
     <header class="page__head">
       <h1 class="page__title">账号管理</h1>
-      <FcButton @click="openCreate">＋ 新建账号</FcButton>
+      <div class="page__ops">
+        <!-- 没勾选时不显示：一个永远是灰的按钮只是噪音。
+             按钮上带条数，避免"我到底选了几个"要靠自己数。 -->
+        <FcButton v-if="pickedCount" variant="danger" :loading="removing" @click="removePicked">
+          删除选中（{{ pickedCount }}）
+        </FcButton>
+        <FcButton @click="openCreate">＋ 新建账号</FcButton>
+      </div>
     </header>
 
     <FcCard padding="none">
@@ -224,6 +267,30 @@ onMounted(load)
       <p v-if="error" class="page__err" role="alert">{{ error }}</p>
 
       <FcTable :columns="columns" :rows="rows" :loading="loading" empty-text="没有匹配的账号">
+        <template #header-select>
+          <input
+            type="checkbox"
+            class="row-pick"
+            :checked="allPicked"
+            :aria-label="allPicked ? '取消全选本页' : '全选本页'"
+            @change="toggleAll"
+          />
+        </template>
+
+        <template #cell-select="{ row }">
+          <!-- 自己那一行不给勾：后端本来就会拒绝删自己，
+               但让用户先选上、点了才被拒，体验是差的。 -->
+          <input
+            type="checkbox"
+            class="row-pick"
+            :checked="picked.has(row.id)"
+            :disabled="row.id === auth.user?.id"
+            :title="row.id === auth.user?.id ? '这是你自己的账号，不能删除' : undefined"
+            :aria-label="`选择 ${row.username}`"
+            @change="togglePick(row.id)"
+          />
+        </template>
+
         <template #cell-username="{ row }">
           <span class="mono">{{ row.username }}</span>
         </template>
@@ -337,6 +404,29 @@ onMounted(load)
 .page__title {
   font-size: var(--fc-font-xl);
   color: var(--fc-text);
+}
+
+/* 标题右侧的操作区：批量删除按钮出现时，两个按钮要并排且留间距 */
+.page__ops {
+  display: flex;
+  align-items: center;
+  gap: var(--fc-space-2);
+}
+
+/* 表格里行的勾选框。浏览器默认只有 13px 左右，在这个密度的表格里偏小；
+   给到 16px 更好点，也让行高对齐更稳。accent-color 跟随品牌色。
+   三张管理端表格统一用 .row-pick 这个类名（.pick 在 ClassGroupManager 里
+   已被「班主任下拉框」占用，所以不能直接用那个名字）。 */
+.row-pick {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--fc-primary);
+  cursor: pointer;
+  vertical-align: middle;
+}
+.row-pick:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
 }
 
 .filters {

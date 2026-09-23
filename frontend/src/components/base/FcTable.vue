@@ -23,7 +23,9 @@ defineProps({
             :key="col.key || col.title"
             :style="{ width: col.width, textAlign: col.align || 'left' }"
           >
-            {{ col.title }}
+            <!-- 表头也能覆写（勾选列要在这里放一个「全选」复选框）。
+                 不覆写就直出标题 —— 原有各列的渲染一字不变。 -->
+            <slot :name="`header-${col.key}`">{{ col.title }}</slot>
           </th>
         </tr>
       </thead>

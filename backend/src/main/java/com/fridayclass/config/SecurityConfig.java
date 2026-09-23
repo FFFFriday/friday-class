@@ -62,14 +62,20 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         // 注册 / 登录：匿名可访问
                         .requestMatchers(HttpMethod.POST, "/api/auth/register", "/api/auth/login").permitAll()
-                        // 上传课件：必须在这里就限教师角色。
+                        // ── 关于 ADMIN 为什么与 TEACHER 并列 ──────────────────
+                        // 需求明确：「管理员是权限更大的教师」——他要看到与教师一样的首页、
+                        // 能翻自己的课。所以下面这些原本 teacher-only 的写接口一并放行 ADMIN。
+                        // 这几条的**本意是挡住学生**，放行 ADMIN 不改变这一点。
+                        // 口径与既有的 /api/class-groups/**、/api/agent/** 一致。
+                        //
+                        // 上传课件：必须在这里就限角色。
                         // 不能只靠 Controller 上的 @PreAuthorize——那时 multipart 已解析完、
                         // 文件已写入磁盘，学生可借此反复上传撑爆磁盘。
-                        .requestMatchers(HttpMethod.POST, "/api/courseware/upload").hasRole("TEACHER")
-                        // 触发 AI 解析：仅教师。这个接口会让服务端真的调用**付费**模型
+                        .requestMatchers(HttpMethod.POST, "/api/courseware/upload").hasAnyRole("TEACHER", "ADMIN")
+                        // 触发 AI 解析：仅教师与管理员。这个接口会让服务端真的调用**付费**模型
                         // （一份 79 页课件约 0.8 元），绝不能让学生或未登录者触发。
                         // 解析本身在后台异步跑，但这一步是花钱的闸门，必须卡死。
-                        .requestMatchers(HttpMethod.POST, "/api/courseware/*/parse").hasRole("TEACHER")
+                        .requestMatchers(HttpMethod.POST, "/api/courseware/*/parse").hasAnyRole("TEACHER", "ADMIN")
                         // 门户课件公开视图：只放行契约中明确公开的 3 个路径，
                         // 不用 /api/courseware/** 整棵子树——否则将来新增的 GET
                         // （如原始 .pptx 下载、导出）会被一并匿名暴露。
@@ -82,15 +88,15 @@ public class SecurityConfig {
                         // 网页幻灯片：随门户一起公开（课件详情页要能直接看）。
                         // 返回时统一加 sandbox CSP 响应头，限制其脚本能力。
                         .requestMatchers(HttpMethod.GET, "/slides/**").permitAll()
-                        // 开课 / 翻页：限教师。「翻的是不是自己的课堂」由 Service 再校验一次。
-                        .requestMatchers(HttpMethod.POST, "/api/session").hasRole("TEACHER")
-                        .requestMatchers(HttpMethod.POST, "/api/session/*/page").hasRole("TEACHER")
+                        // 开课 / 翻页：限教师与管理员。「翻的是不是自己的课堂」由 Service 再校验一次。
+                        .requestMatchers(HttpMethod.POST, "/api/session").hasAnyRole("TEACHER", "ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/session/*/page").hasAnyRole("TEACHER", "ADMIN")
                         // 下课：「结的是不是自己的课堂」同样由 Service 再校验一次。
                         // 「我的课堂」列表（GET /api/session/mine）不在这里放行——
                         // 它默认就需要登录，且只返回 principal 自己的课，不需要角色限制。
-                        .requestMatchers(HttpMethod.POST, "/api/session/*/end").hasRole("TEACHER")
-                        // 屏幕共享的开/关登记：仅教师。「是不是自己的课堂」由 Service 再校验一次。
-                        .requestMatchers(HttpMethod.POST, "/api/session/*/stream").hasRole("TEACHER")
+                        .requestMatchers(HttpMethod.POST, "/api/session/*/end").hasAnyRole("TEACHER", "ADMIN")
+                        // 屏幕共享的开/关登记：限教师与管理员。「是不是自己的课堂」由 Service 再校验一次。
+                        .requestMatchers(HttpMethod.POST, "/api/session/*/stream").hasAnyRole("TEACHER", "ADMIN")
                         // WebSocket 握手：浏览器原生 WebSocket **无法携带 Authorization 头**，
                         // 所以握手阶段只能放行。鉴权改由 PageWebSocketHandler 在「首帧」完成，
                         // 它同样会查库校验用户是否仍在、令牌版本是否被改密码作废，

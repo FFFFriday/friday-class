@@ -46,13 +46,16 @@ public class SessionController {
     }
 
     /**
-     * 开课（教师专属）。
+     * 开课（教师专属；**管理员同样可以**，见下方说明）。
      *
      * <p><b>幂等</b>：若该教师对这份课件已有未结束的课堂，直接返回那一节，不再新建。
      * 这样「开始上课」按钮重复点、刷新页面重新进都不会制造重复课堂。
      */
     @PostMapping
-    @PreAuthorize("hasRole('TEACHER')")
+    // 本文件这几个写接口原先都是 hasRole('TEACHER')，会把管理员一并挡在门外
+    // （ChatController 的注释里早记过这个坑）。需求是「管理员 = 权限更大的教师」，
+    // 所以统一放行 ADMIN。「挡住学生」这个本意不变。
+    @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
     public ApiResponse<SessionResponse> create(@Valid @RequestBody SessionCreateRequest request,
                                                @AuthenticationPrincipal UserPrincipal principal) {
         return ApiResponse.ok(classSessionService.create(principal.getId(), request));
@@ -67,7 +70,7 @@ public class SessionController {
      * 这个答的是「我的课在哪」（含还没开始翻页的），老师退出控制台后靠它回来。
      */
     @GetMapping("/mine")
-    @PreAuthorize("hasRole('TEACHER')")
+    @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
     public ApiResponse<ListResult<SessionResponse>> mine(@AuthenticationPrincipal UserPrincipal principal) {
         return ApiResponse.ok(ListResult.of(classSessionService.listMine(principal.getId())));
     }
@@ -81,7 +84,7 @@ public class SessionController {
      * <p>⚠ 同 {@code /active}，必须声明在 {@link #detail} 之前。
      */
     @GetMapping("/taught")
-    @PreAuthorize("hasRole('TEACHER')")
+    @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
     public ApiResponse<ListResult<SessionResponse>> taught(@AuthenticationPrincipal UserPrincipal principal) {
         return ApiResponse.ok(ListResult.of(classSessionService.listTaught(principal.getId())));
     }
@@ -90,7 +93,7 @@ public class SessionController {
      * 下课（教师专属，且只能结束自己的课堂）。幂等，重复调用不报错。
      */
     @PostMapping("/{id}/end")
-    @PreAuthorize("hasRole('TEACHER')")
+    @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
     public ApiResponse<SessionResponse> end(@PathVariable Long id,
                                             @AuthenticationPrincipal UserPrincipal principal) {
         return ApiResponse.ok(classSessionService.end(id, principal.getId()));
@@ -141,7 +144,7 @@ public class SessionController {
      * <p>返回翻页后的课堂详情，前端不必再补一次 GET。
      */
     @PostMapping("/{id}/page")
-    @PreAuthorize("hasRole('TEACHER')")
+    @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
     public ApiResponse<SessionResponse> changePage(@PathVariable Long id,
                                                    @Valid @RequestBody PageChangeRequest request,
                                                    @AuthenticationPrincipal UserPrincipal principal) {
@@ -185,7 +188,7 @@ public class SessionController {
      * 点对点直连的，服务端不经手。信令走 WebSocket（{@code webrtc.*}）。
      */
     @PostMapping("/{id}/stream")
-    @PreAuthorize("hasRole('TEACHER')")
+    @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
     public ApiResponse<StreamStateResponse> setStreamState(
             @PathVariable Long id,
             @Valid @RequestBody StreamStateRequest request,

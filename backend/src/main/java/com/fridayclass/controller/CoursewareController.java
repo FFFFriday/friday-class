@@ -49,13 +49,13 @@ public class CoursewareController {
     }
 
     /**
-     * 上传课件（教师专属）。
+     * 上传课件（教师专属；管理员同样可以——「管理员 = 权限更大的教师」）。
      *
-     * <p>角色校验放在方法级：白名单之外的所有请求都要求登录，这里再收紧到教师。
+     * <p>角色校验放在方法级：白名单之外的所有请求都要求登录，这里再收紧到教师与管理员。
      * 学生即便拿到合法令牌，也会被挡在 403。
      */
     @PostMapping("/upload")
-    @PreAuthorize("hasRole('TEACHER')")
+    @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
     public ApiResponse<CoursewareUploadResponse> upload(
             @RequestParam("file") MultipartFile file,
             @AuthenticationPrincipal UserPrincipal principal) {

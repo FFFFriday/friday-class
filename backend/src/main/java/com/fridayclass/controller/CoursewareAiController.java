@@ -51,7 +51,7 @@ public class CoursewareAiController {
      * <p>重复点击不会重复解析：同一份课件已有未结束的任务时返回错误提示。
      */
     @PostMapping("/{id}/parse")
-    @PreAuthorize("hasRole('TEACHER')")
+    @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
     public ApiResponse<ParseProgressResponse> parse(@PathVariable Long id) {
         return ApiResponse.ok(aiParseService.trigger(id));
     }
